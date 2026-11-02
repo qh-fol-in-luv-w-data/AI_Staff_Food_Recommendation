@@ -1,0 +1,363 @@
+# =====================================================================
+#  MENU: món lẻ (items) + combo (combos)
+#  - id: mã duy nhất, viết thường không dấu, nối bằng "-"
+#  - aliases: các cách khách hay gọi (có dấu / không dấu / tên tắt) -> giúp AI hiểu đúng
+#  - taste: điểm vị 0..3  (cay, ngot, chua, dam = đậm đà/mặn, beo = béo/ngậy)
+#  - style: nuoc (món nước) | kho (món khô) | uong (đồ uống) | trang_mieng | an_kem
+#  - temp: nong | lanh        portion: lon (no bụng) | vua | nhe   (không dùng "no": YAML hiểu là false)
+#  - contains: thành phần chính -> dùng để lọc khi khách "không ăn bò", "dị ứng tôm"...
+#  - diet: [chay] nếu là món chay
+#  - best_seller / boost: ưu tiên khi gợi ý (boost: -2..+2, quán muốn đẩy món nào thì tăng)
+#  - pairs_with: món hay ăn kèm -> AI gợi ý thêm (upsell)
+#  - options: tuỳ chọn (size...) có cộng tiền
+# =====================================================================
+categories:
+  - { id: pho, name: "Phở", aliases: ["pho"] }
+  - { id: bun, name: "Bún", aliases: ["bun"] }
+  - { id: com, name: "Cơm", aliases: ["com"] }
+  - { id: mon-nhe, name: "Món nhẹ & ăn kèm", aliases: ["ăn vặt", "món nhẹ", "ăn kèm", "khai vị"] }
+  - { id: do-uong, name: "Đồ uống", aliases: ["nước uống", "thức uống", "đồ uống", "nước giải khát"] }
+  - { id: trang-mieng, name: "Tráng miệng", aliases: ["tráng miệng", "chè", "đồ ngọt"] }
+
+items:
+  # ----------------------------- PHỞ -----------------------------
+  - id: pho-bo-tai
+    name: "Phở bò tái"
+    aliases: ["phở tái", "pho bo tai", "phở bò tái lăn"]
+    category: pho
+    price: 55000
+    unit: "tô"
+    description: "Phở bò thịt tái mềm, nước dùng hầm xương 12 tiếng"
+    taste: { cay: 0, ngot: 1, chua: 0, dam: 2, beo: 1 }
+    style: nuoc
+    temp: nong
+    portion: lon
+    contains: ["bò", "hành", "bánh phở"]
+    best_seller: true
+    pairs_with: ["quay", "tra-da"]
+    options:
+      - { id: lon, name: "tô lớn", price_delta: 10000, aliases: ["tô to", "tô bự", "size lớn", "lớn"] }
+  - id: pho-bo-chin
+    name: "Phở bò chín"
+    aliases: ["phở chín", "pho bo chin", "phở nạm"]
+    category: pho
+    price: 55000
+    unit: "tô"
+    description: "Phở bò nạm chín thái mỏng, nước dùng thanh ngọt"
+    taste: { cay: 0, ngot: 1, chua: 0, dam: 2, beo: 1 }
+    style: nuoc
+    temp: nong
+    portion: lon
+    contains: ["bò", "hành", "bánh phở"]
+    pairs_with: ["quay", "tra-da"]
+    options:
+      - { id: lon, name: "tô lớn", price_delta: 10000, aliases: ["tô to", "tô bự", "size lớn", "lớn"] }
+  - id: pho-dac-biet
+    name: "Phở đặc biệt"
+    aliases: ["phở thập cẩm", "pho dac biet", "phở full topping", "phở đầy đủ"]
+    category: pho
+    price: 75000
+    unit: "tô"
+    description: "Đủ tái, chín, gầu, gân, bò viên - món bán chạy nhất quán"
+    taste: { cay: 0, ngot: 1, chua: 0, dam: 3, beo: 2 }
+    style: nuoc
+    temp: nong
+    portion: lon
+    contains: ["bò", "hành", "bánh phở"]
+    best_seller: true
+    boost: 1
+    pairs_with: ["quay", "tra-da"]
+  - id: pho-ga
+    name: "Phở gà"
+    aliases: ["pho ga", "phở gà ta"]
+    category: pho
+    price: 50000
+    unit: "tô"
+    description: "Phở gà ta xé, nước dùng trong và thanh"
+    taste: { cay: 0, ngot: 1, chua: 0, dam: 1, beo: 1 }
+    style: nuoc
+    temp: nong
+    portion: vua
+    contains: ["gà", "hành", "bánh phở"]
+    pairs_with: ["quay", "tra-da"]
+
+  # ----------------------------- BÚN -----------------------------
+  - id: bun-bo-hue
+    name: "Bún bò Huế"
+    aliases: ["bún bò", "bun bo hue", "bun bo", "bún huế", "bò huế"]
+    category: bun
+    price: 60000
+    unit: "tô"
+    description: "Đặc sản Huế cay nồng mùi sả, có giò heo và chả cua"
+    taste: { cay: 3, ngot: 1, chua: 0, dam: 3, beo: 2 }
+    style: nuoc
+    temp: nong
+    portion: lon
+    contains: ["bò", "heo", "mắm ruốc", "sả", "cua"]
+    best_seller: true
+    pairs_with: ["tra-da", "tra-tac"]
+  - id: bun-cha
+    name: "Bún chả Hà Nội"
+    aliases: ["bún chả", "bun cha", "bun cha ha noi"]
+    category: bun
+    price: 55000
+    unit: "phần"
+    description: "Chả nướng than hoa, nước mắm chua ngọt, rau sống"
+    taste: { cay: 1, ngot: 2, chua: 1, dam: 2, beo: 2 }
+    style: kho
+    temp: nong
+    portion: lon
+    contains: ["heo", "nước mắm"]
+    pairs_with: ["cha-gio", "tra-da"]
+  - id: bun-rieu
+    name: "Bún riêu cua"
+    aliases: ["bún riêu", "bun rieu", "bun rieu cua"]
+    category: bun
+    price: 50000
+    unit: "tô"
+    description: "Riêu cua đồng, cà chua, đậu hũ chiên - chua nhẹ dễ ăn"
+    taste: { cay: 0, ngot: 1, chua: 2, dam: 2, beo: 1 }
+    style: nuoc
+    temp: nong
+    portion: vua
+    contains: ["cua", "tôm", "hải sản", "cà chua", "đậu hũ", "mắm tôm"]
+    pairs_with: ["tra-tac"]
+
+  # ----------------------------- CƠM -----------------------------
+  - id: com-tam
+    name: "Cơm tấm sườn bì chả"
+    aliases: ["cơm tấm", "com tam", "cơm sườn", "cơm tấm sườn", "com tam suon bi cha", "cơm sườn bì chả"]
+    category: com
+    price: 60000
+    unit: "dĩa"
+    description: "Sườn nướng mật ong, bì, chả trứng, mỡ hành"
+    taste: { cay: 0, ngot: 2, chua: 0, dam: 2, beo: 2 }
+    style: kho
+    temp: nong
+    portion: lon
+    contains: ["heo", "trứng", "hành"]
+    best_seller: true
+    pairs_with: ["tra-da", "nuoc-ngot"]
+  - id: com-ga
+    name: "Cơm gà xối mỡ"
+    aliases: ["cơm gà", "com ga", "com ga xoi mo"]
+    category: com
+    price: 55000
+    unit: "dĩa"
+    description: "Gà chiên giòn xối mỡ, cơm chiên vàng"
+    taste: { cay: 1, ngot: 1, chua: 0, dam: 2, beo: 3 }
+    style: kho
+    temp: nong
+    portion: lon
+    contains: ["gà"]
+    pairs_with: ["tra-tac", "nuoc-ngot"]
+  - id: com-chay
+    name: "Cơm chay thập cẩm"
+    aliases: ["cơm chay", "com chay"]
+    category: com
+    price: 45000
+    unit: "dĩa"
+    description: "Đậu hũ, nấm, rau củ xào - thanh đạm, tốt cho sức khoẻ"
+    taste: { cay: 0, ngot: 1, chua: 0, dam: 1, beo: 0 }
+    style: kho
+    temp: nong
+    portion: vua
+    contains: ["đậu hũ", "nấm", "rau"]
+    diet: ["chay"]
+    pairs_with: ["nuoc-cam"]
+
+  # ------------------------ MÓN NHẸ / ĂN KÈM ------------------------
+  - id: goi-cuon
+    name: "Gỏi cuốn tôm thịt"
+    aliases: ["gỏi cuốn", "goi cuon", "cuốn tôm thịt"]
+    category: mon-nhe
+    price: 30000
+    unit: "phần"
+    description: "2 cuốn tôm thịt, bún, rau sống, chấm tương đậu phộng"
+    taste: { cay: 0, ngot: 1, chua: 1, dam: 1, beo: 0 }
+    style: an_kem
+    temp: lanh
+    portion: nhe
+    contains: ["tôm", "hải sản", "heo", "đậu phộng"]
+  - id: goi-cuon-chay
+    name: "Gỏi cuốn chay"
+    aliases: ["cuốn chay", "goi cuon chay"]
+    category: mon-nhe
+    price: 28000
+    unit: "phần"
+    description: "2 cuốn đậu hũ, nấm, rau thơm - món chay thanh mát"
+    taste: { cay: 0, ngot: 1, chua: 1, dam: 1, beo: 0 }
+    style: an_kem
+    temp: lanh
+    portion: nhe
+    contains: ["đậu hũ", "nấm", "đậu phộng"]
+    diet: ["chay"]
+  - id: cha-gio
+    name: "Chả giò"
+    aliases: ["nem rán", "cha gio", "chả giò rế"]
+    category: mon-nhe
+    price: 35000
+    unit: "phần"
+    description: "5 cuốn chả giò giòn rụm nhân thịt tôm"
+    taste: { cay: 0, ngot: 1, chua: 0, dam: 2, beo: 2 }
+    style: an_kem
+    temp: nong
+    portion: nhe
+    contains: ["heo", "tôm", "hải sản"]
+  - id: quay
+    name: "Quẩy"
+    aliases: ["quay", "giò cháo quẩy", "quẩy giòn"]
+    category: mon-nhe
+    price: 10000
+    unit: "phần"
+    description: "2 cái quẩy giòn ăn kèm phở"
+    taste: { cay: 0, ngot: 0, chua: 0, dam: 1, beo: 2 }
+    style: an_kem
+    temp: nong
+    portion: nhe
+    contains: ["bột mì"]
+    diet: ["chay"]
+  - id: mi-cay
+    name: "Mì cay hải sản"
+    aliases: ["mì cay", "mi cay", "mi cay hai san", "mì cay 7 cấp"]
+    category: mon-nhe
+    price: 65000
+    unit: "tô"
+    description: "Mì cay kiểu Hàn, chọn cấp độ 1 đến 7, có tôm mực"
+    taste: { cay: 3, ngot: 1, chua: 0, dam: 3, beo: 1 }
+    style: nuoc
+    temp: nong
+    portion: lon
+    contains: ["tôm", "mực", "hải sản"]
+    boost: 1
+    pairs_with: ["tra-tac"]
+
+  # ----------------------------- ĐỒ UỐNG -----------------------------
+  - id: tra-da
+    name: "Trà đá"
+    aliases: ["tra da", "trà đá ly"]
+    category: do-uong
+    price: 5000
+    unit: "ly"
+    taste: { cay: 0, ngot: 0, chua: 0, dam: 0, beo: 0 }
+    style: uong
+    temp: lanh
+    portion: nhe
+    diet: ["chay"]
+  - id: tra-tac
+    name: "Trà tắc"
+    aliases: ["tra tac", "trà quất", "trà tắc mật ong"]
+    category: do-uong
+    price: 15000
+    unit: "ly"
+    description: "Trà tắc mật ong chua ngọt giải nhiệt"
+    taste: { cay: 0, ngot: 2, chua: 2, dam: 0, beo: 0 }
+    style: uong
+    temp: lanh
+    portion: nhe
+    diet: ["chay"]
+  - id: ca-phe-sua-da
+    name: "Cà phê sữa đá"
+    aliases: ["cà phê sữa", "cafe sữa", "ca phe sua da", "cafe sua da", "bạc xỉu", "nâu đá", "cà phê"]
+    category: do-uong
+    price: 25000
+    unit: "ly"
+    taste: { cay: 0, ngot: 2, chua: 0, dam: 1, beo: 1 }
+    style: uong
+    temp: lanh
+    portion: nhe
+    contains: ["sữa", "cà phê"]
+    best_seller: true
+  - id: nuoc-cam
+    name: "Nước cam vắt"
+    aliases: ["nước cam", "nuoc cam", "cam vắt"]
+    category: do-uong
+    price: 30000
+    unit: "ly"
+    taste: { cay: 0, ngot: 1, chua: 2, dam: 0, beo: 0 }
+    style: uong
+    temp: lanh
+    portion: nhe
+    diet: ["chay"]
+  - id: sinh-to-bo
+    name: "Sinh tố bơ"
+    aliases: ["sinh to bo", "sinh tố"]
+    category: do-uong
+    price: 35000
+    unit: "ly"
+    taste: { cay: 0, ngot: 2, chua: 0, dam: 0, beo: 3 }
+    style: uong
+    temp: lanh
+    portion: vua
+    contains: ["sữa", "bơ"]
+  - id: nuoc-ngot
+    name: "Nước ngọt"
+    aliases: ["coca", "pepsi", "coca cola", "nước ngọt lon", "nuoc ngot", "nước có ga", "bảy úp", "7 up"]
+    category: do-uong
+    price: 15000
+    unit: "lon"
+    taste: { cay: 0, ngot: 3, chua: 0, dam: 0, beo: 0 }
+    style: uong
+    temp: lanh
+    portion: nhe
+    diet: ["chay"]
+
+  # ----------------------------- TRÁNG MIỆNG -----------------------------
+  - id: che-ba-mau
+    name: "Chè ba màu"
+    aliases: ["chè", "che ba mau", "che"]
+    category: trang-mieng
+    price: 25000
+    unit: "ly"
+    description: "Đậu xanh, đậu đỏ, thạch lá dứa, nước cốt dừa"
+    taste: { cay: 0, ngot: 3, chua: 0, dam: 0, beo: 2 }
+    style: trang_mieng
+    temp: lanh
+    portion: nhe
+    contains: ["đậu", "nước cốt dừa"]
+    diet: ["chay"]
+
+# Combo: giá combo cố định, AI tự tính thành phần (vị, nguyên liệu, món chay...) từ các món con
+combos:
+  - id: combo-trua
+    name: "Combo trưa"
+    aliases: ["combo 1 người", "combo một người", "combo trưa văn phòng", "côm bô trưa", "com bo trua"]
+    price: 62000
+    serves: 1
+    description: "1 phở bò tái + 1 trà tắc (tiết kiệm 8.000đ)"
+    items:
+      - { item: pho-bo-tai, qty: 1 }
+      - { item: tra-tac, qty: 1 }
+  - id: combo-doi
+    name: "Combo đôi"
+    aliases: ["combo 2 người", "combo hai người", "combo cặp đôi", "côm bô đôi", "com bo doi"]
+    price: 149000
+    serves: 2
+    description: "2 phở bò tái + 1 gỏi cuốn + 2 trà tắc (tiết kiệm 21.000đ)"
+    items:
+      - { item: pho-bo-tai, qty: 2 }
+      - { item: goi-cuon, qty: 1 }
+      - { item: tra-tac, qty: 2 }
+  - id: combo-gia-dinh
+    name: "Combo gia đình"
+    aliases: ["combo 4 người", "combo bốn người", "combo cả nhà", "côm bô gia đình", "com bo gia dinh"]
+    price: 289000
+    serves: 4
+    best_seller: true
+    description: "2 phở đặc biệt + 1 cơm tấm + 1 bún bò Huế + 1 chả giò + 4 trà đá (tiết kiệm 36.000đ)"
+    items:
+      - { item: pho-dac-biet, qty: 2 }
+      - { item: com-tam, qty: 1 }
+      - { item: bun-bo-hue, qty: 1 }
+      - { item: cha-gio, qty: 1 }
+      - { item: tra-da, qty: 4 }
+  - id: combo-chay
+    name: "Combo chay"
+    aliases: ["combo ăn chay", "côm bô chay", "com bo chay"]
+    price: 89000
+    serves: 1
+    description: "1 cơm chay + 1 gỏi cuốn chay + 1 nước cam (tiết kiệm 14.000đ)"
+    items:
+      - { item: com-chay, qty: 1 }
+      - { item: goi-cuon-chay, qty: 1 }
+      - { item: nuoc-cam, qty: 1 }

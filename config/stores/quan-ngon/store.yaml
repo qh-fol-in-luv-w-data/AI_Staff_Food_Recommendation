@@ -1,0 +1,69 @@
+# =====================================================================
+#  THÔNG TIN QUÁN + THANH TOÁN + CÀI ĐẶT KIOSK
+#  Mỗi quán là 1 thư mục trong config/stores/<ma-quan>/ gồm 3 file:
+#    store.yaml       (file này)  - thông tin quán, tài khoản nhận tiền, giọng nói
+#    menu.yaml                    - món lẻ + combo
+#    promotions.yaml              - chương trình ưu đãi
+#  Chạy:  aistaff validate --store config/stores/quan-ngon
+# =====================================================================
+id: quan-ngon-q1
+name: "Quán Ngon Nhà Mình - Chi nhánh Quận 1"
+short_name: "Quán Ngon Nhà Mình"      # tên dùng khi AI chào (ngắn, dễ đọc)
+address: "123 Lê Lợi, Phường Bến Thành, Quận 1, TP. Hồ Chí Minh"
+phone: "0909 123 456"
+timezone: "Asia/Ho_Chi_Minh"
+
+# Thiết bị (mỗi kiosk/máy bán hàng 1 số riêng -> mã đơn không trùng khi dùng chung tài khoản)
+kiosk_no: 1
+
+assistant:
+  name: "Mai"                 # tên nhân viên AI
+  self_pronoun: "em"          # AI xưng là
+  customer_pronoun: "quý khách"  # gọi khách là
+  max_recommendations: 3
+  upsell: true                # gợi ý thêm đồ uống / món ăn kèm
+  announce_promotions: true   # chủ động giới thiệu ưu đãi (bắt buộc theo yêu cầu)
+  idle_reset_seconds: 90      # không tương tác quá lâu -> về màn hình chờ
+
+pricing:
+  currency: "VND"
+  prices_include_vat: true    # giá trên menu đã gồm VAT
+  vat_percent: 0              # nếu prices_include_vat=false thì cộng thêm % này
+  discount_rounding: 1000     # làm tròn tiền giảm xuống bội số 1.000đ
+
+payment:
+  # Thông tin nhận chuyển khoản VietQR (NAPAS 247). Mã BIN tra ở docs/05-thanh-toan-vietqr.md
+  bank_bin: "970436"          # Vietcombank
+  bank_name: "Vietcombank"
+  account_number: "0123456789"
+  account_name: "NGUYEN VAN A"
+  order_prefix: "DH"          # nội dung chuyển khoản: DH01000123
+  qr_expire_minutes: 10
+  allow_cash: true            # cho phép khách chọn trả tiền mặt tại quầy
+  # Cách xác nhận đã nhận tiền:
+  #   manual         - nhân viên bấm xác nhận trên trang /admin (miễn phí, chạy offline)
+  #   sepay_webhook  - SePay gọi webhook khi có tiền vào (cần URL public, vd Cloudflare Tunnel)
+  #   sepay_polling  - thiết bị tự hỏi API SePay mỗi vài giây (không cần mở cổng, chỉ cần Internet)
+  confirm_mode: "manual"
+  sepay:
+    webhook_api_key_env: "SEPAY_WEBHOOK_API_KEY"   # tên biến môi trường chứa API key webhook
+    api_token_env: "SEPAY_API_TOKEN"               # tên biến môi trường chứa API token (polling)
+    poll_interval_seconds: 4
+
+speech:
+  enabled: false              # true khi đã tải model (scripts/download_models.sh)
+  models_dir: "models"
+  asr_model: "sherpa-onnx-zipformer-vi-30M-int8-2026-02-09"
+  tts_voice: "vits-piper-vi_VN-vais1000-medium"
+  tts_speed: 1.0              # >1 nói nhanh hơn
+  num_threads: 2
+  hotwords_score: 1.5         # tăng trọng số tên món khi nhận dạng (đo: 1.5-2.0 tốt nhất, >2.5 phản tác dụng)
+  vad_min_silence: 0.5        # giây im lặng để coi như khách nói xong
+
+# (Tuỳ chọn) LLM dự phòng khi luật NLU không hiểu câu nói. Mặc định TẮT để chạy offline, chi phí 0.
+llm_fallback:
+  enabled: false
+  base_url: "http://127.0.0.1:8081/v1"   # llama.cpp server / Ollama / bất kỳ API tương thích OpenAI
+  model: "qwen3.5-2b-instruct-q4_k_m"
+  api_key_env: "LLM_API_KEY"
+  timeout_seconds: 6

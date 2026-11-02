@@ -1,0 +1,6 @@
+[Desktop Entry]
+Type=Application
+Name=AI Staff Kiosk
+Comment=Mở giao diện gọi món toàn màn hình (cho phép micro tự động)
+Exec=sh -c 'sleep 8; chromium --kiosk --noerrdialogs --disable-infobars --use-fake-ui-for-media-stream --autoplay-policy=no-user-gesture-required --check-for-update-interval=31536000 http://localhost:8000'
+X-GNOME-Autostart-enabled=true

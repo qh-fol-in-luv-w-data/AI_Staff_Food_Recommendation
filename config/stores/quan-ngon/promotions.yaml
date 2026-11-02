@@ -1,0 +1,75 @@
+# =====================================================================
+#  CHƯƠNG TRÌNH ƯU ĐÃI
+#  type:
+#    percent_off_order  - giảm % trên tổng hoá đơn            (value = %, max_discount tuỳ chọn)
+#    amount_off_order   - giảm số tiền cố định trên hoá đơn   (value = VNĐ)
+#    percent_off_items  - giảm % cho một số món/nhóm món      (targets: items / categories / combos)
+#    amount_off_items   - giảm số tiền cố định cho mỗi phần của món mục tiêu
+#    buy_x_get_y        - mua X tặng Y                        (buy, get, reward)
+#    free_item          - hoá đơn từ min_subtotal tặng món    (get)
+#  schedule: days [mon..sun], start/end "HH:MM" (giờ quán)  - bỏ trống = cả ngày, mọi ngày
+#  valid_from / valid_to: ngày hiệu lực (YYYY-MM-DD)
+#  stackable: true = cộng dồn với ưu đãi khác; false = độc quyền (hệ thống tự chọn phương án có lợi nhất cho khách)
+#  announce: AI chủ động giới thiệu (khi chào khách / khi gợi ý / khi khách sắp đạt điều kiện)
+#  hint_within: khách còn thiếu <= số tiền này thì AI nhắc "gọi thêm X để được ưu đãi"
+# =====================================================================
+promotions:
+  - id: gio-vang
+    name: "Giờ vàng giảm 10%"
+    type: percent_off_order
+    value: 10
+    min_subtotal: 100000
+    max_discount: 30000
+    schedule: { days: [mon, tue, wed, thu, fri], start: "14:00", end: "17:00" }
+    stackable: false
+    priority: 10
+    announce: true
+    hint_within: 40000
+    pitch: "từ 2 giờ đến 5 giờ chiều các ngày trong tuần, hoá đơn từ 100 nghìn được giảm 10 phần trăm, tối đa 30 nghìn"
+
+  - id: tra-tac-mua-2-tang-1
+    name: "Trà tắc mua 2 tặng 1"
+    type: buy_x_get_y
+    buy: { item: tra-tac, qty: 2 }
+    get: { item: tra-tac, qty: 1 }
+    reward: free_added          # free_added = tặng thêm ly; discount_in_cart = trong giỏ đủ 3 ly thì 1 ly 0đ
+    stackable: true
+    priority: 5
+    announce: true
+    pitch: "trà tắc đang mua 2 tặng 1"
+
+  - id: hoa-don-200k-tang-che
+    name: "Hoá đơn từ 200 nghìn tặng chè"
+    type: free_item
+    min_subtotal: 200000
+    get: { item: che-ba-mau, qty: 1 }
+    stackable: true
+    priority: 4
+    announce: true
+    hint_within: 50000
+    pitch: "hoá đơn từ 200 nghìn được tặng một ly chè ba màu"
+
+  - id: thu-ba-combo
+    name: "Thứ Ba vui vẻ - combo giảm 15%"
+    type: percent_off_items
+    value: 15
+    targets: { combos: all }
+    schedule: { days: [tue] }
+    stackable: true
+    priority: 8
+    announce: true
+    pitch: "hôm nay thứ Ba tất cả combo được giảm 15 phần trăm"
+
+  - id: cuoi-tuan
+    name: "Cuối tuần giảm 20 nghìn"
+    type: amount_off_order
+    value: 20000
+    min_subtotal: 250000
+    schedule: { days: [sat, sun] }
+    valid_from: "2026-01-01"
+    valid_to: "2026-12-31"
+    stackable: false
+    priority: 9
+    announce: true
+    hint_within: 60000
+    pitch: "cuối tuần hoá đơn từ 250 nghìn được giảm ngay 20 nghìn"

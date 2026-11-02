@@ -1,0 +1,71 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Quản lý đơn</title>
+<style>
+  :root { --bg:#f6f3ee; --panel:#fff; --ink:#1f1b16; --muted:#6f665c; --line:#e6dfd5; --ok:#15803d; --warn:#b45309; --brand:#c2410c; }
+  @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) { --bg:#15120f; --panel:#1f1b17; --ink:#f3ede6; --muted:#b3a89b; --line:#3a332c; --brand:#f97316; } }
+  body { margin:0; background:var(--bg); color:var(--ink); font:15px/1.45 system-ui, sans-serif; padding:16px; }
+  h1 { margin:0 0 12px; font-size:1.3rem; }
+  .bar { display:flex; gap:8px; flex-wrap:wrap; align-items:center; margin-bottom:12px; }
+  input, select, button { font:inherit; padding:8px 12px; border-radius:10px; border:1px solid var(--line); background:var(--panel); color:var(--ink); }
+  button.ok { background:var(--ok); color:#fff; border:0; }
+  .stats { display:flex; gap:12px; flex-wrap:wrap; margin-bottom:12px; }
+  .stat { background:var(--panel); border-radius:12px; padding:10px 14px; min-width:140px; }
+  .stat b { display:block; font-size:1.3rem; }
+  .wrap { overflow-x:auto; background:var(--panel); border-radius:12px; }
+  table { width:100%; border-collapse:collapse; min-width:640px; }
+  th, td { text-align:left; padding:8px 10px; border-bottom:1px solid var(--line); vertical-align:top; }
+  .st-paid { color:var(--ok); font-weight:700; } .st-pending_payment, .st-awaiting_cash { color:var(--warn); font-weight:700; }
+  small { color:var(--muted); }
+</style>
+</head>
+<body>
+<h1>Quản lý đơn hàng</h1>
+<div class="bar">
+  <input id="pin" type="password" placeholder="Mã PIN quản lý (ADMIN_PIN)">
+  <select id="status"><option value="">Tất cả</option><option value="pending_payment">Chờ chuyển khoản</option><option value="awaiting_cash">Chờ tiền mặt</option><option value="paid">Đã thanh toán</option><option value="expired">Hết hạn</option><option value="cancelled">Đã huỷ</option></select>
+  <button id="reload">Tải lại</button>
+</div>
+<div class="stats" id="stats"></div>
+<div class="wrap"><table><thead><tr><th>Mã đơn</th><th>Thời gian</th><th>Món</th><th>Tổng</th><th>Thanh toán</th><th>Trạng thái</th><th></th></tr></thead><tbody id="rows"></tbody></table></div>
+<script>
+(() => {
+  const $ = (id) => document.getElementById(id);
+  const money = (n) => (n || 0).toLocaleString("vi-VN").replace(/,/g, ".") + "đ";
+  const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+  const label = { pending_payment: "Chờ chuyển khoản", awaiting_cash: "Chờ tiền mặt", paid: "Đã thanh toán", expired: "Hết hạn", cancelled: "Đã huỷ" };
+  try { $("pin").value = sessionStorage.getItem("pin") || ""; } catch {}
+  const q = () => { const p = $("pin").value; try { sessionStorage.setItem("pin", p); } catch {} return p ? "pin=" + encodeURIComponent(p) : ""; };
+  async function load() {
+    const st = $("status").value;
+    const r = await fetch(`/api/admin/orders?${q()}${st ? "&status=" + st : ""}`);
+    if (!r.ok) { $("rows").innerHTML = `<tr><td colspan="7">${esc((await r.json()).detail || r.status)}</td></tr>`; return; }
+    const orders = await r.json();
+    $("rows").innerHTML = orders.map((o) => `<tr>
+      <td><b>${esc(o.code)}</b></td>
+      <td><small>${new Date(o.created_at).toLocaleString("vi-VN")}</small></td>
+      <td>${o.items.map((i) => `${i.qty} ${esc(i.display_name || i.name)}`).join("<br>")}</td>
+      <td><b>${money(o.total)}</b>${o.discount ? `<br><small>giảm ${money(o.discount)}</small>` : ""}</td>
+      <td>${o.payment_method === "cash" ? "Tiền mặt" : "VietQR"}${o.payment_ref ? `<br><small>${esc(o.payment_ref)}</small>` : ""}</td>
+      <td class="st-${o.status}">${label[o.status] || o.status}</td>
+      <td>${["pending_payment", "awaiting_cash", "expired"].includes(o.status) ? `<button class="ok" data-paid="${o.code}">Đã nhận tiền</button>` : ""}</td></tr>`).join("");
+    const s = await (await fetch(`/api/admin/stats?${q()}`)).json();
+    $("stats").innerHTML = `<div class="stat">Đơn đã thanh toán (24h)<b>${s.orders}</b></div><div class="stat">Doanh thu (24h)<b>${money(s.revenue)}</b></div>
+      <div class="stat">Đã giảm cho khách<b>${money(s.discount)}</b></div><div class="stat">Bán chạy<b style="font-size:1rem">${(s.top_items || []).slice(0, 3).map((t) => esc(t[0]) + " ×" + t[1]).join("<br>") || "-"}</b></div>`;
+  }
+  document.addEventListener("click", async (e) => {
+    const b = e.target.closest("button[data-paid]");
+    if (!b) return;
+    if (!confirm(`Xác nhận đã nhận tiền cho đơn ${b.dataset.paid}?`)) return;
+    await fetch(`/api/admin/orders/${b.dataset.paid}/paid?${q()}`, { method: "POST" });
+    load();
+  });
+  $("reload").onclick = load; $("status").onchange = load;
+  load(); setInterval(load, 5000);
+})();
+</script>
+</body>
+</html>

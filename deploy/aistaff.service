@@ -1,0 +1,22 @@
+[Unit]
+Description=AI Staff - nhân viên AI gọi món (kiosk server)
+After=network-online.target sound.target
+Wants=network-online.target
+
+[Service]
+User=@USER@
+WorkingDirectory=@APP_DIR@
+Environment=PYTHONUNBUFFERED=1
+Environment=OMP_NUM_THREADS=2
+# Đổi mã PIN trang /admin (bắt buộc nếu truy cập từ máy khác)
+Environment=ADMIN_PIN=doi-ma-nay
+# Bật nếu dùng SePay (xem docs/05-thanh-toan-vietqr.md)
+#Environment=SEPAY_WEBHOOK_API_KEY=
+#Environment=SEPAY_API_TOKEN=
+ExecStart=@APP_DIR@/.venv/bin/aistaff --store @STORE@ serve --host 0.0.0.0 --port 8000
+Restart=always
+RestartSec=3
+Nice=-5
+
+[Install]
+WantedBy=multi-user.target
