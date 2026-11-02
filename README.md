@@ -79,6 +79,13 @@ Chạy `aistaff --store config/stores/<ma-quan> validate` để bắt lỗi trư
 | RAM server + model | ~350 MB |
 | ASR + NLU hiểu đúng món & ý định (40 câu thử) | 92,5% (WER chữ 8–10%) |
 
+## Nghiên cứu core AI (bản tổng hợp để duyệt)
+
+**[docs/CORE-AI-RESEARCH.md](docs/CORE-AI-RESEARCH.md)**: một file duy nhất, nghiên cứu chi tiết từng phương pháp
+(thu âm & khử ồn, VAD & kết thúc lượt nói, kích hoạt, ASR & ưu tiên tên món, chuẩn hoá văn bản, NLU, quản lý hội thoại,
+gợi ý & upsell, tối ưu ưu đãi, TTS, LLM, đánh giá & dữ liệu). Có lộ trình và **14 quyết định cần duyệt**.
+Các đề xuất trong đó **chưa được triển khai** vào code.
+
 ## Tài liệu research từng bước (tối ưu chi phí & yêu cầu)
 
 1. [Yêu cầu & kiến trúc](docs/01-yeu-cau-va-kien-truc.md) — vì sao chọn kiến trúc lai ưu tiên edge, ngân sách độ trễ

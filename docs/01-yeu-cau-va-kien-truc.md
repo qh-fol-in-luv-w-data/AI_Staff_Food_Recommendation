@@ -1,6 +1,7 @@
 # Bước 1 — Phân tích yêu cầu & chọn kiến trúc
 
 > Mục tiêu của bước này: chốt **kiến trúc rẻ nhất mà vẫn đạt yêu cầu tốc độ**, trước khi chọn từng model.
+> Nghiên cứu chi tiết từng phương pháp AI (để duyệt hướng nâng cấp) nằm ở [CORE-AI-RESEARCH.md](CORE-AI-RESEARCH.md).
 
 ## 1.1. Yêu cầu (tách nhỏ từ đề bài)
 
