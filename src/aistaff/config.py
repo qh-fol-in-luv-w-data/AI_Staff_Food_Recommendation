@@ -65,6 +65,7 @@ class MenuItem(_Base):
     available: bool = True
     pairs_with: list[str] = []
     options: list[Option] = []
+    image: str = ""  # ảnh chụp món (file trong config/stores/<quán>/images/ hoặc URL); trống = UI tự vẽ minh hoạ
 
     @property
     def kind(self) -> str:
@@ -106,6 +107,7 @@ class Combo(_Base):
     portion: str = "lon"
     pairs_with: list[str] = []
     options: list[Option] = []
+    image: str = ""
 
     @property
     def kind(self) -> str:

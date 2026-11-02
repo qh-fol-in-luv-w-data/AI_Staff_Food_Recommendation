@@ -812,6 +812,12 @@ class DialogManager:
                 reply = self._checkout(s, None)
             else:
                 reply = self._place_order(s, "cash" if (method == "cash" and self.store.payment.allow_cash) else "vietqr")
+        elif kind == "edit":  # khách bấm "Sửa món" trên phiếu gọi món / màn hình QR
+            if s.state == "awaiting_payment" and self.storage and s.order_code:
+                self.storage.set_status(s.order_code, "cancelled")
+                s.order_code = None
+            s.state = "ordering"
+            reply = self._reply(s, f"Dạ, {self.cp} cứ sửa món thoải mái, xong thì bấm Thanh toán nhé.", intent="edit_order")
         elif kind == "recommend":
             reply = self._present_recs(s)
         elif kind == "cancel":

@@ -30,8 +30,10 @@ Khách: "Chốt đơn" → AI đọc lại đơn + tổng tiền → "Đúng r�
   tự chọn phương án lợi nhất; **AI chủ động giới thiệu** khi chào, khi gợi ý, khi khách sắp đạt điều kiện, khi chốt đơn.
 - **Tính tiền + VietQR động** (EMVCo/NAPAS, CRC16) sinh offline; xác nhận tiền: thủ công (/admin), SePay webhook hoặc SePay polling.
 - **SQLite**: thông tin quán, đơn hàng, giao dịch (chống trùng), log hội thoại dạng chữ; trang **/admin** xem doanh thu & xác nhận.
-- **Giao diện kiosk** web (HTML/JS thuần, chạy offline): trò chuyện + nút micro, thực đơn chạm, giỏ hàng, QR, màn hình cảm ơn;
-  chạy được cả trên tablet/điện thoại.
+- **Giao diện kiosk React "Mâm sơn mài"** (chạy offline, bản build có sẵn trong gói Python): món ăn minh hoạ SVG
+  bốc khói trên mâm sơn mài, chạm bát để phóng to xem chi tiết (vị, size, ghi chú cho bếp), món bay vào mâm, quả cầu
+  của Mai phản ứng theo giọng nói, phiếu gọi món giấy vỏ trứng, QR khung vàng lá, con dấu son khi thanh toán xong.
+  Bố cục kiosk ngang / kiosk dọc / tablet / điện thoại. Chi tiết thiết kế: [web/README.md](web/README.md).
 - LLM **tuỳ chọn** làm dự phòng cho câu khó (API chuẩn OpenAI: llama.cpp/Ollama/cloud) — không bao giờ chạm vào giá tiền.
 
 ## Chạy thử nhanh (không cần model, gõ phím)
@@ -102,11 +104,12 @@ src/aistaff/
   storage.py                  SQLite
   llm.py                      LLM dự phòng (tuỳ chọn)
   speech/                     ASR, VAD, TTS, cache
-  kiosk/                      FastAPI + WebSocket + giao diện web (static/)
+  kiosk/                      FastAPI + WebSocket; webui/ = bản build giao diện React; static/admin.html
   cli.py                      lệnh aistaff
+web/                          mã nguồn giao diện React (Vite + motion), xem web/README.md
 scripts/                      tải model, cài đặt edge, benchmark giọng nói
 deploy/                       systemd, autostart Chromium kiosk
-tests/                        98 test (pytest)
+tests/                        99 test (pytest)
 ```
 
 ## Kiểm thử

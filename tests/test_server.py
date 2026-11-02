@@ -28,7 +28,13 @@ def test_config_endpoint(client):
     d = client.get("/api/config").json()
     assert d["store"]["assistant"] == "Mai" and any(e["kind"] == "combo" for e in d["entries"])
     assert client.get("/healthz").json()["ok"]
-    assert "Gọi món" in client.get("/").text
+    page = client.get("/")
+    assert page.status_code in (200, 503)
+    if page.status_code == 200:
+        assert 'id="root"' in page.text
+    e = next(x for x in d["entries"] if x["id"] == "combo-doi")
+    assert e["items"][0]["name"] == "Phở bò tái" and e["value"] == 170000 and "taste" in e
+    assert client.get("/media/../store.yaml").status_code == 404
 
 
 def test_ws_order_to_payment(client, monkeypatch):

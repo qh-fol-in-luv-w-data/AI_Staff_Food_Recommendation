@@ -137,3 +137,13 @@ def test_clarify_by_ordinal_keeps_quantity(make_dm):
     second = r.options[1]["entry_id"]
     r = dm.handle(s, "món thứ hai")  # "hai" là thứ tự, không phải số lượng
     assert (second, 3) in lines(r)
+
+
+def test_touch_edit_from_confirm(make_dm):
+    dm = make_dm()
+    s = dm.new_session(seed=12)
+    dm.handle_action(s, {"type": "add", "entry_id": "pho-ga", "qty": 1})
+    dm.handle_action(s, {"type": "checkout"})
+    assert s.state == "confirm_order"
+    r = dm.handle_action(s, {"type": "edit"})
+    assert r.state == "ordering" and r.intent == "edit_order"

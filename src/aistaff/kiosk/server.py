@@ -30,6 +30,7 @@ from ..storage import Storage
 
 log = logging.getLogger("aistaff.kiosk")
 STATIC = Path(__file__).parent / "static"
+WEBUI = Path(__file__).parent / "webui"  # bản build React (web/ -> npm run build)
 
 
 @dataclass
@@ -204,6 +205,9 @@ def create_app(store_dir: str | Path, db_path: str | Path = "data/aistaff.db", d
     app.state.kiosk = k
 
     app.mount("/static", StaticFiles(directory=STATIC), name="static")
+    if (WEBUI / "assets").exists():
+        app.mount("/assets", StaticFiles(directory=WEBUI / "assets"), name="assets")
+    media_dir = (cfg.base_dir / "images").resolve() if cfg.base_dir else None
 
     def admin_guard(request: Request, pin: str | None) -> None:
         want = os.environ.get("ADMIN_PIN")
@@ -214,8 +218,20 @@ def create_app(store_dir: str | Path, db_path: str | Path = "data/aistaff.db", d
             raise HTTPException(403, "Đặt biến môi trường ADMIN_PIN để quản lý từ xa")
 
     @app.get("/", response_class=HTMLResponse)
-    def index() -> FileResponse:
-        return FileResponse(STATIC / "index.html")
+    def index():
+        if (WEBUI / "index.html").exists():
+            return FileResponse(WEBUI / "index.html", headers={"Cache-Control": "no-cache"})
+        return HTMLResponse("<h1>Giao diện chưa được build</h1><p>Chạy: <code>cd web && npm install && npm run build</code></p>",
+                            status_code=503)
+
+    @app.get("/media/{path:path}")
+    def media(path: str) -> FileResponse:
+        if not media_dir:
+            raise HTTPException(404)
+        p = (media_dir / path).resolve()
+        if media_dir not in p.parents or not p.is_file():
+            raise HTTPException(404)
+        return FileResponse(p, headers={"Cache-Control": "public, max-age=86400"})
 
     @app.get("/admin", response_class=HTMLResponse)
     def admin_page() -> FileResponse:
@@ -225,25 +241,39 @@ def create_app(store_dir: str | Path, db_path: str | Path = "data/aistaff.db", d
     def health() -> dict:
         return {"ok": True, "store": cfg.store.id, "speech": bool(engine), "llm": bool(llm), "sessions": len(k.ctxs)}
 
+    def _img(e) -> str:
+        if not e.image:
+            return ""
+        return e.image if e.image.startswith(("http://", "https://", "/")) else f"/media/{e.image}"
+
     @app.get("/api/config")
     def public_config() -> dict:
         st = cfg.store
-        promos = [{"id": p.id, "name": p.name, "pitch": p.pitch} for p in k.dm.engine.active()]
+        eng = k.dm.engine
+        promos = [{"id": p.id, "name": p.name, "pitch": p.pitch, "type": p.type, "reward": eng.reward_text(p),
+                   "min_subtotal": p.min_subtotal} for p in eng.active()]
         entries = []
         for e in cfg.menu.entries():
             d = {"id": e.id, "name": e.name, "price": e.price, "kind": e.kind, "category": e.category,
                  "description": getattr(e, "description", ""), "unit": getattr(e, "unit", "phần"),
                  "best_seller": e.best_seller, "vegetarian": e.is_vegetarian, "spicy": e.taste.cay,
+                 "taste": e.taste.model_dump(), "style": e.style, "temp": e.temp, "portion": e.portion,
+                 "contains": list(e.contains), "pairs_with": list(e.pairs_with), "image": _img(e),
                  "options": [o.model_dump() for o in e.options],
-                 "promos": [p.name for p in k.dm.engine.promos_for_entry(e.id)]}
+                 "promos": [p.name for p in eng.promos_for_entry(e.id)]}
             if e.kind == "combo":
                 d["serves"] = e.serves  # type: ignore[union-attr]
+                d["value"] = cfg.menu.combo_value(e)  # type: ignore[arg-type]
+                d["items"] = [{"id": p.item, "name": cfg.menu.item(p.item).name, "qty": p.qty}
+                              for p in e.items]  # type: ignore[union-attr]
             entries.append(d)
         cats = [{"id": c.id, "name": c.name} for c in cfg.menu.categories]
         if cfg.menu.combos:
             cats.insert(0, {"id": "combo", "name": "Combo"})
         return {"store": {"id": st.id, "name": st.name, "short_name": st.display_name, "address": st.address,
-                          "phone": st.phone, "assistant": st.assistant.name, "allow_cash": st.payment.allow_cash},
+                          "phone": st.phone, "assistant": st.assistant.name, "allow_cash": st.payment.allow_cash,
+                          "customer_pronoun": st.assistant.customer_pronoun,
+                          "qr_expire_minutes": st.payment.qr_expire_minutes},
                 "categories": cats, "entries": entries, "promotions": promos, "speech": bool(engine)}
 
     @app.get("/tts/{name}")
