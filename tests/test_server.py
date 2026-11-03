@@ -11,7 +11,7 @@ from .conftest import STORE, TUE_HAPPY
 @pytest.fixture
 def client(tmp_path, monkeypatch):
     monkeypatch.delenv("ADMIN_PIN", raising=False)
-    app = create_app(STORE, tmp_path / "t.db", tmp_path, speech=False, now_fn=lambda: TUE_HAPPY)
+    app = create_app(STORE, tmp_path / "t.db", tmp_path, speech=False, now_fn=lambda: TUE_HAPPY, provider=None)
     with TestClient(app) as c:
         yield c
 

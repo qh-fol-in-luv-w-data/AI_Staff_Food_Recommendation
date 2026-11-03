@@ -69,6 +69,7 @@ class Ctx:
     partial_busy: bool = False
     partial_text: str = ""
     preroll: deque = field(default_factory=lambda: deque(maxlen=12))
+    recent_speech: deque = field(default_factory=lambda: deque(maxlen=3))  # câu Mai vừa nói (lời chào, xác nhận...)
 
 
 def _log_task_error(t: asyncio.Task) -> None:
@@ -110,6 +111,12 @@ class Kiosk:
             return "rules"
         return "llm" if self.llm_ready() else "llm-offline"
 
+    def brain(self) -> str:
+        """Tên bộ não đang dùng (hiện ở /healthz)."""
+        if self.provider is None:
+            return "rules"
+        return f"{getattr(self.provider, 'kind', type(self.provider).__name__)}:{getattr(self.provider, 'model', '?')}"
+
     # ------------------------------------------------------------------ phiên
     def ctx(self, sid: str | None) -> Ctx:
         if sid and sid in self.ctxs:
@@ -133,6 +140,8 @@ class Kiosk:
     async def push_reply(self, c: Ctx, reply: Reply) -> None:
         if reply.order and reply.order.get("code"):
             self.by_order[reply.order["code"]] = c.session.id
+        if reply.text:
+            c.recent_speech.append(reply.text)
         rid = f"{time.time():.3f}"
         await self.send(c, {"type": "reply", "id": rid, **reply.to_dict()})
         if self.speech and reply.speech:
@@ -177,10 +186,26 @@ class Kiosk:
 
     async def _prewarm(self, agent: Any) -> None:
         key = hash(agent.system)
-        if time.time() - self._warm.get(key, 0) < 240:  # cache (TTL 5 phút) vẫn còn ấm
+        ttl = getattr(self.provider, "prewarm_ttl", 240)  # Claude: cache sống 5 phút; local: KV cache giữ tới khi bị thay
+        if time.time() - self._warm.get(key, 0) < ttl:
             return
         self._warm[key] = time.time()
-        await agent.prewarm()
+        if await agent.prewarm() is None:
+            self._warm.pop(key, None)  # chưa làm ấm được (server LLM chưa chạy?) -> thử lại lần sau
+
+    async def prewarm_startup(self) -> None:
+        """System prompt giống nhau cho mọi phiên -> làm ấm ngay khi khởi động, khách đầu tiên khỏi chờ."""
+        if not (self.realtime and self.conv.prewarm_cache):
+            return
+        from ..agent import ConversationAgent
+
+        await self._prewarm(ConversationAgent(self.cfg, self.dm, self.dm.new_session("warmup"), self.provider))
+
+    @staticmethod
+    def _spoken(c: Ctx) -> str:
+        """Những gì Mai vừa nói / đang nói (so với lời khách để nhận ra micro thu lại giọng Mai)."""
+        cur = c.out.full[-400:] if c.out else ""
+        return " ".join([*c.recent_speech, cur])
 
     @staticmethod
     def _playing(c: Ctx) -> bool:
@@ -442,7 +467,7 @@ class Kiosk:
         out = c.out
         if (self.conv.barge_in and not c.barged and self._busy(c)
                 and (time.monotonic() - c.speech_t0) * 1000 >= self.conv.barge_in_min_ms
-                and not is_backchannel(text) and not (out and looks_like_echo(text, out.recent_spoken()))):
+                and not is_backchannel(text) and not looks_like_echo(text, self._spoken(c))):
             c.barged = True
             log.info("khách ngắt lời: %r", text)
             await self.interrupt(c)
@@ -461,7 +486,7 @@ class Kiosk:
             last_clip = out is not None and c.turn is not None and c.turn.done() and out.heard_seq >= len(out.clips) - 1
             if self._busy(c) and is_backchannel(text) and not last_clip:
                 return
-            if out and looks_like_echo(text, out.recent_spoken()):
+            if looks_like_echo(text, self._spoken(c)):
                 log.info("bỏ qua tiếng vọng: %r", text)
                 return
         await self.on_user(c, text)
@@ -497,8 +522,12 @@ class Kiosk:
 
             for f in self.fillers:
                 await asyncio.to_thread(self.speech.tts.get, tts_normalize(f))
+        last_warm = 0.0
         while True:
             await asyncio.sleep(1)
+            if self.realtime and time.time() - last_warm > 60 and not self._warm:
+                last_warm = time.time()
+                asyncio.ensure_future(self.prewarm_startup()).add_done_callback(_log_task_error)
             try:
                 for c in list(self.ctxs.values()):
                     if self._busy(c):
@@ -528,17 +557,24 @@ def _is_local(host: str | None) -> bool:
         return host in ("localhost", "testclient")
 
 
-def _make_provider(cfg: StoreConfig) -> Any:
+def make_provider(cfg: StoreConfig) -> Any:
+    """Chọn bộ não hội thoại theo store.yaml -> conversation.provider."""
     conv = cfg.store.conversation
     if conv.engine != "llm":
         return None
     from ..agent.provider import AnthropicProvider
 
-    if not AnthropicProvider.available(conv):
-        log.warning("Chưa đặt biến môi trường %s (hoặc chưa cài gói anthropic): hội thoại dùng bộ luật offline. "
-                    "Đặt API key để bật AI nói chuyện thời gian thực.", conv.api_key_env)
+    if conv.provider in ("auto", "anthropic") and AnthropicProvider.available(conv):
+        return AnthropicProvider(conv)
+    if conv.provider == "anthropic":
+        log.warning("provider: anthropic nhưng chưa đặt biến môi trường %s (hoặc chưa cài gói anthropic): "
+                    "hội thoại dùng bộ luật offline.", conv.api_key_env)
         return None
-    return AnthropicProvider(conv)
+    from ..agent.local import LocalProvider
+
+    log.info("LLM local tại %s (model %s). Chưa chạy server LLM thì kiosk tự dùng bộ luật offline.",
+             conv.local.base_url, conv.local.model)
+    return LocalProvider(conv)
 
 
 def create_app(store_dir: str | Path, db_path: str | Path = "data/aistaff.db", data_dir: str | Path = "data",
@@ -560,9 +596,9 @@ def create_app(store_dir: str | Path, db_path: str | Path = "data/aistaff.db", d
 
         llm = LLMRewriter(cfg.store.llm_fallback)
     if isinstance(provider, str) and provider == "auto":
-        provider = _make_provider(cfg)
+        provider = make_provider(cfg)
     k = Kiosk(cfg, storage, data, engine, llm, now_fn=now_fn, provider=provider)
-    log.info("Hội thoại: %s%s", k.mode(), f" ({cfg.store.conversation.model})" if k.realtime else "")
+    log.info("Hội thoại: %s (%s)", k.mode(), k.brain())
 
     @asynccontextmanager
     async def lifespan(_app: FastAPI):
@@ -612,8 +648,7 @@ def create_app(store_dir: str | Path, db_path: str | Path = "data/aistaff.db", d
     @app.get("/healthz")
     def health() -> dict:
         return {"ok": True, "store": cfg.store.id, "speech": bool(engine), "llm": bool(llm), "sessions": len(k.ctxs),
-                "conversation": k.mode(), "model": cfg.store.conversation.model if k.realtime else None,
-                "llm_error": k.llm_error or None}
+                "conversation": k.mode(), "brain": k.brain(), "llm_error": k.llm_error or None}
 
     def _img(e) -> str:
         if not e.image:
@@ -650,7 +685,7 @@ def create_app(store_dir: str | Path, db_path: str | Path = "data/aistaff.db", d
                           "customer_pronoun": st.assistant.customer_pronoun,
                           "qr_expire_minutes": st.payment.qr_expire_minutes},
                 "categories": cats, "entries": entries, "promotions": promos, "speech": bool(engine),
-                "conversation": {"engine": "llm" if k.realtime else "rules",
+                "conversation": {"engine": "llm" if k.realtime else "rules", "brain": k.brain(),
                                  "barge_in": bool(k.realtime and conv.barge_in),
                                  "partial_asr": bool(conv.partial_asr)}}
 

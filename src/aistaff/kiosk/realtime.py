@@ -160,9 +160,6 @@ class SpeechOut:
         """Phần Mai đã nói ra loa (theo báo cáo phát của trình duyệt)."""
         return " ".join(t for t in self.clips[: self.heard_seq + 1] if t).strip()
 
-    def recent_spoken(self) -> str:
-        return " ".join(self.clips[-3:])
-
     # ------------------------------------------------------------------ TTS tuần tự
     async def _run(self) -> None:
         seq = 0

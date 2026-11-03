@@ -64,7 +64,16 @@ speech:
 # thêm món / gợi ý / tính tiền / tạo QR (không bao giờ tự bịa giá). Cần Internet + ANTHROPIC_API_KEY.
 # Không có mạng hoặc khoá -> tự động dùng bộ luật offline (engine: rules).
 conversation:
-  engine: llm                 # llm | rules
+  engine: llm                 # llm = AI nói chuyện thời gian thực | rules = bộ luật offline
+  provider: auto              # auto | local | anthropic. auto: có ANTHROPIC_API_KEY thì dùng Claude, không thì LLM local
+  local:                      # LLM chạy ngay trên thiết bị: scripts/run_local_llm.sh (llama.cpp) hoặc Ollama
+    base_url: "http://127.0.0.1:8080/v1"   # Ollama: http://127.0.0.1:11434/v1
+    model: local                           # Ollama: đúng tên model đã pull
+    temperature: 0.5
+    max_tokens: 400
+    timeout_seconds: 60
+    # extra_body: {chat_template_kwargs: {enable_thinking: false}}   # model có chế độ "suy nghĩ" (Qwen3 gốc): tắt cho nhanh
+  # --- khi dùng Claude (cần Internet + biến môi trường ANTHROPIC_API_KEY)
   model: claude-opus-5-5      # mặc định; "claude-haiku-5-5" nhanh hơn và rẻ hơn ~40 lần (xem docs/CORE-AI-RESEARCH.md)
   effort: low                 # low = trả lời nhanh nhất; tăng lên medium nếu cần suy luận kỹ hơn
   barge_in: true              # khách nói chen thì Mai dừng nói và nghe
@@ -76,7 +85,7 @@ conversation:
 # (Tuỳ chọn, chỉ dùng ở engine: rules) LLM dự phòng khi luật NLU không hiểu câu nói.
 llm_fallback:
   enabled: false
-  base_url: "http://127.0.0.1:8081/v1"   # llama.cpp server / Ollama / bất kỳ API tương thích OpenAI
+  base_url: "http://127.0.0.1:8080/v1"   # dùng chung server LLM local ở trên (llama.cpp / Ollama / API tương thích OpenAI)
   model: "qwen3.5-2b-instruct-q4_k_m"
   api_key_env: "LLM_API_KEY"
   timeout_seconds: 6

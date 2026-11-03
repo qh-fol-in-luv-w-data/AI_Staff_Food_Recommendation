@@ -67,6 +67,9 @@ def _usage_dict(u: Any) -> dict:
 
 
 class AnthropicProvider:
+    kind = "claude"
+    prewarm_ttl = 240  # prompt cache mặc định sống 5 phút
+
     def __init__(self, conv: Conversation, api_key: str | None = None, client: Any = None):
         import anthropic
         import httpx2  # thư viện HTTP của SDK; lỗi khi đang đọc stream có thể không được SDK bọc lại

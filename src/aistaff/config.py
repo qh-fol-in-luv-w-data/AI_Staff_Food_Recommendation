@@ -340,11 +340,27 @@ class Speech(_Base):
     vad_min_silence: float = 0.5
 
 
+class LocalLLM(_Base):
+    """LLM chạy ngay trên thiết bị (hoặc máy chủ trong quán) qua API tương thích OpenAI:
+    llama.cpp `llama-server --jinja`, Ollama, vLLM, LM Studio... Không cần Internet, không tốn phí theo token."""
+
+    base_url: str = "http://127.0.0.1:8080/v1"  # llama-server mặc định; Ollama: http://127.0.0.1:11434/v1
+    model: str = "local"                        # tên model trên server (Ollama bắt buộc đúng tên, vd "qwen3:4b")
+    api_key_env: str = "LOCAL_LLM_API_KEY"      # thường để trống
+    temperature: float = Field(0.5, ge=0, le=2)
+    max_tokens: int = Field(400, ge=32, le=8192)
+    timeout_seconds: float = Field(60, gt=1, le=600)
+    extra_body: dict = {}                       # tham số riêng của server, vd {"chat_template_kwargs": {"enable_thinking": false}}
+
+
 class Conversation(_Base):
     """Hội thoại thời gian thực: LLM điều khiển cuộc nói chuyện, công cụ tất định lo giỏ hàng/tiền."""
 
     engine: Literal["llm", "rules"] = "llm"
-    model: str = "claude-opus-5-5"   # đổi "claude-haiku-5-5" nếu muốn nhanh và rẻ hơn nhiều
+    # auto: có ANTHROPIC_API_KEY thì dùng Claude (cloud), không thì dùng LLM local (local.base_url)
+    provider: Literal["auto", "anthropic", "local"] = "auto"
+    local: LocalLLM = LocalLLM()
+    model: str = "claude-opus-5-5"   # model Claude; đổi "claude-haiku-5-5" nếu muốn nhanh và rẻ hơn nhiều
     api_key_env: str = "ANTHROPIC_API_KEY"  # tên biến môi trường chứa API key (không ghi key vào file cấu hình)
     effort: Literal["low", "medium", "high", "xhigh", "max"] = "low"  # low = phản hồi nhanh nhất cho giọng nói
     max_tokens: int = Field(4096, ge=256, le=64000)  # thinking cũng tính vào max_tokens
@@ -361,7 +377,7 @@ class Conversation(_Base):
 
 class LLMFallback(_Base):
     enabled: bool = False
-    base_url: str = "http://127.0.0.1:8081/v1"
+    base_url: str = "http://127.0.0.1:8080/v1"
     model: str = "local"
     api_key_env: str = "LLM_API_KEY"
     timeout_seconds: float = 6

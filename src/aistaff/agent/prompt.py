@@ -1,8 +1,9 @@
-"""System prompt cho nhân viên AI: tính cách + quy tắc nghiệp vụ + thực đơn + ưu đãi.
+"""System prompt cho nhân viên AI: tính cách + quy tắc nghiệp vụ + thực đơn.
 
-Prompt được dựng MỘT LẦN mỗi phiên và giữ nguyên từng byte trong suốt phiên (prompt caching và lịch sử
-chỉ-nối-thêm của Claude yêu cầu tiền tố không đổi). Không chèn giờ phút cụ thể: chỉ dùng "buổi" trong ngày,
-nên các phiên trong cùng buổi dùng chung một bản cache.
+System prompt KHÔNG chứa gì thay đổi theo giờ: giống hệt từng byte cho mọi phiên, mọi lúc (chỉ đổi khi sửa
+menu). Nhờ vậy tiền tố dài nhất (tools + system) luôn trúng cache: prompt cache của Claude, và KV cache của
+llama.cpp khi chạy LLM local (tránh phải xử lý lại vài nghìn token mỗi lần). Giờ hiện tại và ưu đãi đang áp
+dụng đi vào ghi chú hệ thống ở lượt đầu tiên của từng phiên (`arrival_note`).
 """
 
 from __future__ import annotations
@@ -71,19 +72,25 @@ def promo_lines(cfg: StoreConfig, now: datetime) -> str:
     eng = PromotionEngine(cfg)
     ps = eng.active(now)
     if not ps:
-        return "Hiện không có ưu đãi nào."
+        return "không có."
     out = []
     for p in ps:
         cond = f" (hoá đơn từ {format_money(p.min_subtotal)})" if p.min_subtotal else ""
-        out.append(f"- {p.name}: {p.pitch or eng.reward_text(p)}{cond}")
-    return "\n".join(out)
+        out.append(f"{p.name}: {p.pitch or eng.reward_text(p)}{cond}")
+    return "; ".join(out) + "."
 
 
-def build_system_prompt(cfg: StoreConfig, now: datetime) -> str:
+def arrival_note(cfg: StoreConfig, now: datetime) -> str:
+    """Ghi chú hệ thống đầu phiên: khách tới, mấy giờ, ưu đãi nào đang chạy."""
+    return (f"Khách vừa bước tới kiosk. Bây giờ là {now:%H:%M} {day_part(now)} {_DAYS[now.weekday()]}. "
+            f"Ưu đãi đang áp dụng lúc này: {promo_lines(cfg, now)}")
+
+
+def build_system_prompt(cfg: StoreConfig) -> str:
     st = cfg.store
     a = st.assistant
     cash = "quét mã QR chuyển khoản hoặc tiền mặt tại quầy" if st.payment.allow_cash else "quét mã QR chuyển khoản"
-    return f"""Bạn là {a.name}, nhân viên phục vụ của {st.display_name} ({st.address}). Bạn đang nói chuyện TRỰC TIẾP BẰNG GIỌNG NÓI với khách đứng trước kiosk gọi món. Mọi câu bạn viết được đọc to bằng giọng nói tổng hợp và hiện trên màn hình. Lúc này là {day_part(now)} {_DAYS[now.weekday()]}.
+    return f"""Bạn là {a.name}, nhân viên phục vụ của {st.display_name} ({st.address}). Bạn đang nói chuyện TRỰC TIẾP BẰNG GIỌNG NÓI với khách đứng trước kiosk gọi món. Mọi câu bạn viết được đọc to bằng giọng nói tổng hợp và hiện trên màn hình.
 
 # Cách nói chuyện
 - Nói như một nhân viên quán thật: tiếng Việt tự nhiên, ấm áp, lễ phép, có chút vui vẻ. Xưng "{a.self_pronoun}", gọi khách là "{a.customer_pronoun}"; nếu khách tự xưng anh/chị/cô/chú thì gọi theo. Thường mở đầu bằng "Dạ".
@@ -102,7 +109,7 @@ def build_system_prompt(cfg: StoreConfig, now: datetime) -> str:
 - Khách nhờ gợi ý mà chưa rõ khẩu vị: hỏi gọn trong một câu (thích cay hay thanh đạm, món nước hay khô, kiêng gì, đi mấy người). Chỉ hỏi một lần, sau đó gọi recommend_dishes và giới thiệu tối đa 3 món kèm lý do ngắn.
 - Khách nói kiêng, dị ứng, ăn chay, ngân sách hay số người: luôn truyền vào recommend_dishes (exclude_ingredients, vegetarian, max_price_per_person, group_size). Tuyệt đối không mời món có thành phần khách kiêng.
 - Khách muốn xem hoặc hỏi kỹ về một món: gọi show_dish để món hiện to trên màn hình, rồi mô tả ngắn.
-- Ưu đãi: chủ động giới thiệu ưu đãi phù hợp khi gợi ý món, và khi công cụ trả về promo_hints (khách sắp đạt điều kiện). Mỗi ưu đãi nhắc tối đa hai lần trong cả cuộc trò chuyện.
+- Ưu đãi: chỉ nói về các ưu đãi đang áp dụng trong ghi chú hệ thống đầu cuộc trò chuyện. Chủ động giới thiệu ưu đãi phù hợp khi gợi ý món, và khi công cụ trả về promo_hints (khách sắp đạt điều kiện). Mỗi ưu đãi nhắc tối đa hai lần trong cả cuộc trò chuyện.
 - Sau khi thêm món chính mà chưa có đồ uống, có thể mời thêm một đồ uống (dùng gợi ý upsell trong kết quả công cụ), mỗi cuộc trò chuyện chỉ mời một lần.
 - Khách nói đã xong hoặc muốn tính tiền: gọi review_order (màn hình hiện phiếu gọi món), đọc lại ngắn gọn các món, ưu đãi đã áp dụng, tổng tiền, rồi hỏi khách thanh toán bằng {cash}.
 - Chỉ gọi place_order khi khách đã đồng ý rõ ràng với đơn và chọn cách thanh toán. Sau đó: QR thì mời khách quét mã trên màn hình; tiền mặt thì mời khách thanh toán tại quầy và đọc số thứ tự.
@@ -111,7 +118,5 @@ def build_system_prompt(cfg: StoreConfig, now: datetime) -> str:
 # THỰC ĐƠN (id | tên | giá | mô tả | vị | kiểu món | thành phần | tuỳ chọn | ghi chú)
 {menu_catalog(cfg)}
 
-# ƯU ĐÃI ĐANG ÁP DỤNG
-{promo_lines(cfg, now)}
 Hệ thống tự áp dụng ưu đãi có lợi nhất cho khách khi tính tiền.
 """

@@ -18,10 +18,15 @@ from aistaff.agent.provider import StepResult
 
 
 class ScriptedProvider:
-    def __init__(self, script: list[Any] | None = None, chunk: int = 7, delay: float = 0.0, stop_reasons: dict | None = None):
+    kind = "scripted"
+    model = "scripted"
+
+    def __init__(self, script: list[Any] | None = None, chunk: int = 7, delay: float = 0.0, stop_reasons: dict | None = None,
+                 first_delay: float = 0.0):
         self.script = list(script or [])
         self.chunk = chunk
         self.delay = delay
+        self.first_delay = first_delay  # giả lập thời gian chờ chữ đầu tiên (TTFT)
         self.stop_reasons = stop_reasons or {}
         self.calls: list[dict] = []
         self.prewarms = 0
@@ -36,6 +41,8 @@ class ScriptedProvider:
         if not self.script:
             raise AssertionError("ScriptedProvider: hết kịch bản")
         item = self.script.pop(0)
+        if self.first_delay:
+            await asyncio.sleep(self.first_delay)
         if callable(item):
             item = item(messages)
         if isinstance(item, BaseException):

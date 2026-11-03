@@ -24,7 +24,7 @@ from typing import Any, Awaitable, Callable
 
 from ..config import StoreConfig
 from ..dialog import DialogManager, Session
-from .prompt import build_system_prompt
+from .prompt import arrival_note, build_system_prompt
 from .provider import ProviderError, StepResult, TextCallback, block_attr, block_type
 from .tools import ToolBox
 
@@ -32,7 +32,6 @@ log = logging.getLogger("aistaff.agent")
 
 EventCallback = Callable[[dict], Awaitable[None]]
 
-ARRIVAL_NOTE = "Khách vừa bước tới kiosk."
 USAGE_KEYS = ("input_tokens", "output_tokens", "cache_read_input_tokens", "cache_creation_input_tokens")
 _BRACKETS = re.compile(r"[\[\]]")
 _SPACES = re.compile(r"\s+")
@@ -89,9 +88,10 @@ class ConversationAgent:
         self.s = session
         self.provider = provider
         self.toolbox = ToolBox(dm, session)
-        # Dựng một lần cho cả phiên - không được đổi giữa chừng
-        self.system = build_system_prompt(cfg, now or dm.now_fn())
+        # Dựng một lần, không được đổi giữa chừng (và giống nhau giữa các phiên -> cache dùng chung)
+        self.system = build_system_prompt(cfg)
         self.tools = self.toolbox.specs()
+        self.arrival = arrival_note(cfg, now or dm.now_fn())
         self.messages: list[dict] = []
         self._notes: list[str] = []
         self.totals: dict[str, int] = {k: 0 for k in USAGE_KEYS} | {"requests": 0}
@@ -106,7 +106,7 @@ class ConversationAgent:
         if self.messages:
             return
         self.messages = [
-            {"role": "user", "content": [{"type": "text", "text": f"[Hệ thống: {ARRIVAL_NOTE}]"}]},
+            {"role": "user", "content": [{"type": "text", "text": f"[Hệ thống: {self.arrival}]"}]},
             {"role": "assistant", "content": [{"type": "text", "text": greeting}]},
         ]
 
@@ -122,7 +122,7 @@ class ConversationAgent:
 
     def _push_user(self, blocks: list[dict]) -> None:
         if not self.messages:
-            blocks = [{"type": "text", "text": f"[Hệ thống: {ARRIVAL_NOTE}]"}, *blocks]
+            blocks = [{"type": "text", "text": f"[Hệ thống: {self.arrival}]"}, *blocks]
         if self.messages and self.messages[-1]["role"] == "user":
             # Lượt trước bị huỷ trước khi model trả lời: chưa có gì sinh ra sau tin nhắn này -> nối tiếp vào đó
             last = self.messages[-1]
