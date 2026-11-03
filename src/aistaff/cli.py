@@ -1,7 +1,7 @@
 """Dòng lệnh: aistaff <lệnh> --store config/stores/<quán>
 
   validate   kiểm tra cấu hình quán (menu, combo, ưu đãi, tài khoản)
-  chat       trò chuyện bằng bàn phím (thử kịch bản không cần micro); --llm: nói chuyện với AI thật (Claude / LLM local)
+  chat       trò chuyện bằng bàn phím (thử kịch bản không cần micro); --llm: nói chuyện với LLM mã nguồn mở thật
   serve      chạy kiosk server (giao diện http://<ip>:8000, quản lý /admin)
   qr         tạo mã VietQR (in ra terminal / lưu PNG)
   hotwords   in danh sách hotword sinh từ menu (cho ASR)
@@ -45,7 +45,7 @@ def cmd_validate(a) -> int:
 
 
 def _chat_llm(a, cfg, dm) -> int:
-    """Hội thoại với bộ não LLM thật (cùng agent + công cụ như kiosk), gõ phím thay cho micro."""
+    """Hội thoại với LLM mã nguồn mở thật trên máy (cùng agent + công cụ như kiosk), gõ phím thay cho micro."""
     import asyncio
 
     from .agent import ConversationAgent, ProviderError
@@ -53,20 +53,12 @@ def _chat_llm(a, cfg, dm) -> int:
 
     conv = cfg.store.conversation
     conv.engine = "llm"
-    if a.provider:
-        conv.provider = a.provider
     if a.base_url:
-        conv.local.base_url = a.base_url
+        conv.llm.base_url = a.base_url
     if a.model:
-        if conv.provider == "anthropic":
-            conv.model = a.model
-        else:
-            conv.local.model = a.model
+        conv.llm.model = a.model
     provider = make_provider(cfg)
-    if provider is None:
-        print("Chưa có bộ não LLM: đặt ANTHROPIC_API_KEY (Claude) hoặc chạy scripts/run_local_llm.sh (LLM local).")
-        return 1
-    print(f"(bộ não: {provider.kind}:{provider.model})")
+    print(f"(LLM: {conv.llm.model} tại {conv.llm.base_url}; chưa chạy thì: bash scripts/run_local_llm.sh)")
 
     def new_agent():
         s = dm.new_session()
@@ -113,8 +105,6 @@ def _chat_llm(a, cfg, dm) -> int:
             except ProviderError as e:
                 print(f"\n   [LLM lỗi: {e.kind}] {e}\n")
                 continue
-            if res.refused:
-                print(res.text, end="")
             print()
             if a.debug:
                 ttft = f"{res.ttft_ms:.0f} ms" if res.ttft_ms is not None else "-"
@@ -305,10 +295,9 @@ def main(argv: list[str] | None = None) -> int:
     c.add_argument("--at", help="giả lập thời điểm, vd '2026-11-03 15:00' (thử ưu đãi theo giờ)")
     c.add_argument("--say", nargs="*", help="chạy kịch bản không tương tác")
     c.add_argument("--debug", action="store_true")
-    c.add_argument("--llm", action="store_true", help="nói chuyện với AI thật (Claude hoặc LLM local) thay cho bộ luật")
-    c.add_argument("--provider", choices=["auto", "local", "anthropic"], help="ghi đè conversation.provider")
-    c.add_argument("--base-url", help="địa chỉ LLM local, vd http://127.0.0.1:11434/v1 (Ollama)")
-    c.add_argument("--model", help="tên model (Claude hoặc model trên server local)")
+    c.add_argument("--llm", action="store_true", help="nói chuyện với LLM mã nguồn mở trên máy thay cho bộ luật")
+    c.add_argument("--base-url", help="địa chỉ server LLM, vd http://127.0.0.1:11434/v1 (Ollama)")
+    c.add_argument("--model", help="tên model trên server LLM (Ollama: tên đã pull)")
     sv = sub.add_parser("serve")
     sv.add_argument("--host", default="0.0.0.0")
     sv.add_argument("--port", type=int, default=8000)

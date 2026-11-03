@@ -3,8 +3,8 @@
 Thiết kế "LLM chuẩn hoá câu, không phải LLM thu ngân":
   câu khách lộn xộn --LLM--> 1 câu lệnh chuẩn ("cho 2 phở bò tái", "gợi ý món cay", "chốt đơn")
   --> đưa lại NLU luật để parse. Giá, món, ưu đãi vẫn do code tất định xử lý => LLM không thể bịa giá.
-Dùng được mọi máy chủ tương thích OpenAI Chat Completions: llama.cpp server, Ollama, vLLM, LM Studio
-(chạy local trên thiết bị mạnh như Jetson/RK3588) hoặc dịch vụ đám mây (khi có Internet).
+Chạy với LLM mã nguồn mở trên thiết bị qua API tương thích OpenAI Chat Completions: llama.cpp server,
+Ollama, vLLM (dùng chung server với chế độ hội thoại `llm`).
 """
 
 from __future__ import annotations

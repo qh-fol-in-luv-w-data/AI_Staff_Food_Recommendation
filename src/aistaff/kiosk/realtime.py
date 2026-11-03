@@ -123,9 +123,10 @@ class SpeechOut:
         for x in sents:
             self._say(x)
 
-    def filler(self, text: str) -> bool:
-        """Câu đệm ("Dạ.") khi LLM chưa kịp trả lời. Chỉ khi chưa có câu nào được đưa đi đọc."""
-        if self.closed or self.sentences or self.filler_used or not self._worker:
+    def filler(self, text: str, again: bool = False) -> bool:
+        """Câu đệm ("Dạ.") khi LLM chưa kịp trả lời. Chỉ khi chưa có câu nào được đưa đi đọc.
+        again=True: câu đệm thứ hai khi LLM trên máy yếu còn chậm hơn nữa ("chờ em một chút")."""
+        if self.closed or self.sentences or not self._worker or (self.filler_used and not again):
             return False
         self.filler_used = True
         self._q.put_nowait(("filler", text))

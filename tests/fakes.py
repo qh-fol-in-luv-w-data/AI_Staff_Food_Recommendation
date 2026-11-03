@@ -1,10 +1,8 @@
-"""Provider giả lập thay Claude trong test (không cần mạng / API key).
+"""Provider giả lập thay LLM trong test tự động (chạy nhanh, kết quả cố định, không cần model).
 
 Kịch bản = danh sách các bước; mỗi bước là list khối:
   "chữ"                      -> khối text (được stream từng mẩu qua on_text)
   ("tool", tên, tham số)     -> khối tool_use
-  ("thinking",)              -> khối thinking (để kiểm tra được đưa lại nguyên vẹn)
-  ("fallback",)              -> mốc fallback (model chính từ chối giữa chừng, model dự phòng nói tiếp)
 hoặc một Exception (ví dụ ProviderError) để giả lập lỗi, hoặc hàm(messages) -> bước.
 """
 
@@ -49,7 +47,7 @@ class ScriptedProvider:
             raise item
         stop = None
         if isinstance(item, tuple) and len(item) == 2 and isinstance(item[1], str) and item[1] in (
-                "end_turn", "tool_use", "max_tokens", "refusal"):
+                "end_turn", "tool_use", "max_tokens"):
             item, stop = item
         content: list[dict] = []
         for b in item:
@@ -62,10 +60,6 @@ class ScriptedProvider:
             elif b[0] == "tool":
                 self.n += 1
                 content.append({"type": "tool_use", "id": f"toolu_{self.n:03d}", "name": b[1], "input": b[2]})
-            elif b[0] == "thinking":
-                content.append({"type": "thinking", "thinking": "", "signature": f"sig{self.n}"})
-            elif b[0] == "fallback":
-                content.append({"type": "fallback", "from": {"model": "a"}, "to": {"model": "b"}})
         if stop is None:
             stop = "tool_use" if any(c["type"] == "tool_use" for c in content) else "end_turn"
         return StepResult(content=content, stop_reason=stop, model="scripted",

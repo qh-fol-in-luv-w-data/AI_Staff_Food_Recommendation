@@ -5,10 +5,21 @@ giới thiệu ưu đãi, hỏi khẩu vị, gợi ý món, nhận món bằng g
 lại nghe), đọc lại đơn, tính tiền (tự áp dụng ưu đãi có lợi nhất) và hiện **mã VietQR** để khách quét thanh toán.
 Đơn được chốt khi ngân hàng báo đã nhận tiền.
 
-- **Tai và miệng chạy trên thiết bị**: nhận dạng giọng nói, tổng hợp giọng nói, VAD (không cần GPU, RAM ~350 MB).
-- **Bộ não hội thoại**: LLM chạy trên máy (llama.cpp / Ollama, 0đ/lượt, không cần Internet) hoặc Claude trên cloud
-  (thông minh hơn, cần Internet + API key). Giá, ưu đãi, tổng tiền, mã QR luôn do code tất định tính → AI không bịa được giá.
-- Mất mạng / LLM lỗi → tự chuyển sang bộ luật offline (bản v0.1), khách vẫn gọi món được.
+**Chỉ dùng model mã nguồn mở, chạy ngay trên thiết bị** — không gọi API AI đám mây, giọng nói và lời khách không rời máy:
+
+| Khâu | Phương pháp đang dùng | Model / thư viện mã nguồn mở |
+|------|-----------------------|------------------------------|
+| Thu âm | Khử vọng / khử ồn của trình duyệt, PCM16 16 kHz | WebRTC (Chromium) |
+| Phát hiện giọng nói | VAD khung 32 ms, im lặng 0,5 s là hết câu | Silero VAD (MIT) + sherpa-onnx (Apache-2.0) |
+| Nhận dạng giọng nói | Transducer + hotwords tự sinh từ menu; phụ đề tạm mỗi 0,6 s | Zipformer-vi 30M INT8 (sherpa-onnx) |
+| Hiểu ý & trò chuyện | Agent LLM gọi công cụ, stream; prompt cố định để tái dùng KV cache | **Qwen3-4B-Instruct-2507** (Apache-2.0) trên **llama.cpp** (MIT) |
+| Giỏ hàng, giá, ưu đãi, QR | Công cụ tất định (AI không bịa được giá) | code Python |
+| Gợi ý món | Content-based: lọc cứng → chấm điểm → đa dạng hoá | code Python |
+| Dự phòng khi LLM lỗi | NLU luật + so khớp mờ + máy trạng thái (bản v0.1) | rapidfuzz (MIT) |
+| Tổng hợp giọng nói | VITS + cache + cắt câu khi chữ đang chảy + câu đệm "Dạ." | Piper (GPL-3.0), giọng vi_VN-vais1000 (CC BY 4.0) |
+
+Chi tiết từng phương pháp, phương pháp đã cân nhắc nhưng không dùng (và lý do), giấy phép, số đo:
+[docs/CORE-AI-RESEARCH.md → Phương pháp đang dùng trong hệ thống](docs/CORE-AI-RESEARCH.md#phương-pháp-đang-dùng-trong-hệ-thống).
 
 ```
 Khách: "Gợi ý cho anh món gì ngon đi"
@@ -41,7 +52,7 @@ Khách: "Chốt đơn" → AI đọc lại đơn + tổng tiền → "Đúng r�
   bốc khói trên mâm sơn mài, chạm bát để phóng to xem chi tiết (vị, size, ghi chú cho bếp), món bay vào mâm, quả cầu
   của Mai phản ứng theo giọng nói, phiếu gọi món giấy vỏ trứng, QR khung vàng lá, con dấu son khi thanh toán xong.
   Bố cục kiosk ngang / kiosk dọc / tablet / điện thoại. Chi tiết thiết kế: [web/README.md](web/README.md).
-- Chế độ bộ luật (`engine: rules`) vẫn còn, kèm LLM tuỳ chọn để chuẩn hoá câu khó — không bao giờ chạm vào giá tiền.
+- Chế độ bộ luật (`engine: rules`, cho thiết bị yếu) vẫn còn, kèm LLM tuỳ chọn để chuẩn hoá câu khó — không bao giờ chạm vào giá tiền.
 
 ## Chạy thử nhanh (không cần model, gõ phím)
 
@@ -53,22 +64,20 @@ aistaff chat --at "2026-11-03 15:00"           # trò chuyện; gõ /paid để 
 aistaff serve --no-speech                      # mở http://localhost:8000  (quản lý: /admin)
 ```
 
-## Bật AI nói chuyện (LLM)
+## Bật AI nói chuyện (LLM mã nguồn mở trên máy)
 
-Chọn một trong hai bộ não (`store.yaml → conversation.provider`, mặc định `auto`):
+Cần bản build llama.cpp cho đúng CPU/GPU của máy (https://github.com/ggml-org/llama.cpp/releases). Lần đầu tải model
+GGUF (cần Internet), sau đó chạy offline. Cấu hình ở `store.yaml → conversation.llm`.
 
 ```bash
-# 1) LLM chạy ngay trên máy (không cần Internet sau khi tải model; cần llama.cpp: github.com/ggml-org/llama.cpp/releases)
-bash scripts/run_local_llm.sh                  # llama-server --jinja ở http://127.0.0.1:8080/v1
-# 2) Claude trên cloud (mặc định claude-opus-5-5, effort low; đổi claude-haiku-5-5 để nhanh và rẻ hơn nhiều)
-export ANTHROPIC_API_KEY=...                   # đặt key bằng biến môi trường, không ghi vào file cấu hình
-
-aistaff chat --llm --debug                     # nói chuyện thử bằng bàn phím với bộ não thật (xem độ trễ, công cụ, token)
-aistaff serve                                  # kiosk dùng bộ não đã chọn; /healthz cho biết đang chạy gì
+bash scripts/run_local_llm.sh                  # llama-server --jinja, Qwen3-4B-Instruct-2507 Q4_K_M, http://127.0.0.1:8080/v1
+aistaff chat --llm --debug                     # nói chuyện thử bằng bàn phím (xem độ trễ, công cụ được gọi, token)
+aistaff serve                                  # kiosk dùng LLM; /healthz cho biết đang chạy gì
 ```
 
-Với Claude, fallback phía server (`fallbacks: "default"`) đang bật cho Opus 5.5, và lời khách (dạng chữ) được gửi lên
-Anthropic: nên có thông báo quyền riêng tư tại kiosk. Với LLM local, dữ liệu ở lại trên máy.
+Dùng Ollama thay llama.cpp: `ollama pull <model>` rồi đặt `conversation.llm.base_url: http://127.0.0.1:11434/v1` và
+`model: <tên model>`. Chưa chạy server LLM thì kiosk tự dùng bộ luật offline. Chọn model theo phần cứng (Pi 5 chưa đủ
+nhanh cho hội thoại thời gian thực; khuyên dùng mini PC mạnh hoặc Jetson/Mac): [CORE-AI-RESEARCH §16.3](docs/CORE-AI-RESEARCH.md#163-chọn-model-mã-nguồn-mở-theo-phần-cứng).
 
 ## Bật giọng nói
 
@@ -100,7 +109,7 @@ Chạy `aistaff --store config/stores/<ma-quan> validate` để bắt lỗi trư
 | NLU + gợi ý + ưu đãi + tính tiền | 0,8 ms/lượt |
 | TTS câu đầu tiên (Piper) | 170–300 ms; câu có trong cache: 0 ms |
 | Từ lúc khách ngừng nói → AI bắt đầu nói (chế độ bộ luật) | ≈ 0,7–0,9 s (gồm 0,5 s chờ im lặng) |
-| Như trên, chế độ LLM với Claude | ≈ 1,3–2,4 s **ước tính, chưa đo với model thật**; câu đệm "Dạ." ở ≈ 1,2 s |
+| Như trên, chế độ LLM (Qwen3-4B trên máy) | tuỳ phần cứng, GPU khoảng 2–4 s **ước tính, chưa đo với model thật**; câu đệm "Dạ." ở ≈ 1,2 s |
 | RAM server + model | ~350 MB |
 | ASR + NLU hiểu đúng món & ý định (40 câu thử) | 92,5% (WER chữ 8–10%) |
 
@@ -109,12 +118,13 @@ Chạy `aistaff --store config/stores/<ma-quan> validate` để bắt lỗi trư
 **[docs/CORE-AI-RESEARCH.md](docs/CORE-AI-RESEARCH.md)**: một file duy nhất, nghiên cứu chi tiết từng phương pháp
 (thu âm & khử ồn, VAD & kết thúc lượt nói, kích hoạt, ASR & ưu tiên tên món, chuẩn hoá văn bản, NLU, quản lý hội thoại,
 gợi ý & upsell, tối ưu ưu đãi, TTS, LLM, đánh giá & dữ liệu). Có lộ trình và **14 quyết định cần duyệt**.
-§16 mô tả kiến trúc hội thoại thời gian thực **đã triển khai**; các đề xuất M1–M12 còn lại chưa làm.
+Đầu file có **bảng phương pháp đang dùng** (chỉ mã nguồn mở) và bảng phương pháp đã loại kèm lý do; §16 mô tả
+kiến trúc hội thoại thời gian thực **đã triển khai**; các đề xuất M1–M12 còn lại chưa làm.
 
 ## Tài liệu research từng bước (tối ưu chi phí & yêu cầu)
 
 1. [Yêu cầu & kiến trúc](docs/01-yeu-cau-va-kien-truc.md) — vì sao chọn kiến trúc lai ưu tiên edge, ngân sách độ trễ
-2. [Nhận dạng giọng nói (ASR)](docs/02-nhan-dang-giong-noi-asr.md) — so sánh Zipformer / PhoWhisper / Vosk / cloud, số đo, hotwords
+2. [Nhận dạng giọng nói (ASR)](docs/02-nhan-dang-giong-noi-asr.md) — so sánh Zipformer / PhoWhisper / Vosk (và cloud để đối chiếu, không dùng), số đo, hotwords
 3. [Tổng hợp giọng nói (TTS)](docs/03-tong-hop-giong-noi-tts.md) — Piper, cache, prerender, lưu ý bản quyền GPL
 4. [Hiểu ngôn ngữ, gợi ý, ưu đãi](docs/04-hieu-ngon-ngu-goi-y-uu-dai.md) — LLM hay luật, máy trạng thái hội thoại
 5. [Thanh toán VietQR](docs/05-thanh-toan-vietqr.md) — cấu trúc mã, xác nhận tiền (thủ công/SePay), BIN, hoá đơn điện tử
@@ -134,15 +144,15 @@ src/aistaff/
   cart.py · dialog.py         giỏ hàng · máy trạng thái hội thoại
   vietqr.py · payments.py     sinh VietQR · xác nhận thanh toán (thủ công/SePay)
   storage.py                  SQLite
-  agent/                      AI hội thoại: prompt, công cụ tất định, vòng lặp agent, Claude (provider.py), LLM local (local.py)
+  agent/                      AI hội thoại: prompt, công cụ tất định, vòng lặp agent, kết nối LLM mã nguồn mở (local.py)
   llm.py                      LLM chuẩn hoá câu cho chế độ bộ luật (tuỳ chọn)
   speech/                     ASR, VAD, TTS, cache
   kiosk/                      FastAPI + WebSocket, vòng giọng nói thời gian thực (realtime.py); webui/ = bản build React
   cli.py                      lệnh aistaff
 web/                          mã nguồn giao diện React (Vite + motion), xem web/README.md
 scripts/                      tải model, chạy LLM local, cài đặt edge, benchmark giọng nói
-deploy/                       systemd, autostart Chromium kiosk
-tests/                        140 test (pytest)
+deploy/                       systemd (kiosk + LLM llama-server), autostart Chromium kiosk
+tests/                        132 test (pytest)
 ```
 
 ## Kiểm thử
@@ -154,6 +164,7 @@ pytest
 
 ## Giấy phép thành phần bên thứ ba
 
-sherpa-onnx (Apache-2.0) · model Zipformer tiếng Việt (xem trang gốc từng model) · `piper-tts` (GPL-3.0-or-later) ·
+sherpa-onnx (Apache-2.0) · model Zipformer tiếng Việt (giấy phép **cần kiểm chứng** trên trang gốc từng model trước khi bán) ·
+Qwen3-4B-Instruct-2507 (Apache-2.0) · llama.cpp (MIT) · `piper-tts` (GPL-3.0-or-later) ·
 giọng `vi_VN-vais1000` (dữ liệu VAIS-1000, CC BY 4.0) · Silero VAD (MIT) · FastAPI, rapidfuzz, segno, pydantic (MIT/BSD).
 Đọc kỹ [docs/03 §3.5](docs/03-tong-hop-giong-noi-tts.md) trước khi phân phối thiết bị thương mại.

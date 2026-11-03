@@ -1,9 +1,12 @@
 # Nghiên cứu Core AI: Nhân viên AI gọi món (chi tiết từng phương pháp)
 
-> **Cập nhật 2026-11-03: đã đổi hướng theo yêu cầu "AI nói chuyện thời gian thực với khách".** LLM nay nằm trên
-> đường xử lý chính (thay cho NLU luật + máy trạng thái), bộ luật cũ chỉ còn làm dự phòng khi mất mạng / lỗi LLM.
-> Kiến trúc, hai lựa chọn "bộ não" (Claude trên cloud / LLM chạy trên máy), độ trễ, chi phí: xem [§16](#16-hội-thoại-thời-gian-thực-bằng-llm-đã-triển-khai).
-> Kết luận "không đưa LLM vào đường chính" ở §0 và §12 là của bản v0.1, giữ lại để đối chiếu.
+> **Chính sách: hệ thống chỉ dùng model mã nguồn mở, chạy ngay trên thiết bị.** Không gọi API AI đám mây nào.
+> Bảng "đang dùng gì, vì sao, ở đâu trong code" nằm ngay dưới mục lục: [Phương pháp đang dùng trong hệ thống](#phương-pháp-đang-dùng-trong-hệ-thống).
+>
+> **Cập nhật 2026-11-03: đã đổi hướng theo yêu cầu "AI nói chuyện thời gian thực với khách".** LLM mã nguồn mở
+> (Qwen3-4B-Instruct qua llama.cpp) nay nằm trên đường xử lý chính, bộ luật cũ chỉ còn làm dự phòng. Kiến trúc,
+> chọn model theo phần cứng, độ trễ: [§16](#16-hội-thoại-thời-gian-thực-bằng-llm-đã-triển-khai). Kết luận "không đưa
+> LLM vào đường chính" ở §0 và §12 là của bản v0.1, giữ lại để đối chiếu.
 >
 > **Trạng thái các phần M1–M12: ĐỀ XUẤT ĐỂ DUYỆT.** Ngoài §16, các đề xuất dưới đây chưa được làm trong code.
 > Mỗi phần kết thúc bằng **Đề xuất** và **Cần quyết định**. Danh sách quyết định tổng hợp ở [§14](#14-lộ-trình-và-các-quyết-định-cần-duyệt).
@@ -13,6 +16,7 @@
 
 ## Mục lục
 
+- [Phương pháp đang dùng trong hệ thống](#phương-pháp-đang-dùng-trong-hệ-thống) (bảng tổng hợp, chỉ mã nguồn mở)
 0. [Tóm tắt điều hành](#0-tóm-tắt-điều-hành)
 1. [Bức tranh tổng thể & nguyên tắc thiết kế](#1-bức-tranh-tổng-thể--nguyên-tắc-thiết-kế)
 2. [M1. Thu âm & tiền xử lý âm thanh (micro, khử vọng, khử ồn)](#2-m1-thu-âm--tiền-xử-lý-âm-thanh)
@@ -30,6 +34,64 @@
 14. [Lộ trình & các quyết định cần duyệt](#14-lộ-trình-và-các-quyết-định-cần-duyệt)
 15. [Tài liệu tham khảo](#15-tài-liệu-tham-khảo)
 16. [Hội thoại thời gian thực bằng LLM (đã triển khai)](#16-hội-thoại-thời-gian-thực-bằng-llm-đã-triển-khai)
+
+---
+
+## Phương pháp đang dùng trong hệ thống
+
+Bảng này là "sự thật" của bản hiện tại: mỗi khâu dùng phương pháp nào, model/thư viện mã nguồn mở nào (giấy phép),
+nằm ở file nào và đã đo được gì. Phần nghiên cứu chi tiết từng phương pháp ở §2–§13, kiến trúc hội thoại ở §16.
+
+### Nguyên tắc chọn
+
+1. **Chỉ model mã nguồn mở, chạy trên thiết bị.** Không gửi giọng nói hay lời khách ra ngoài. Mạng chỉ cần để tải model
+   lần đầu và (tuỳ chọn) nhận báo có tiền từ ngân hàng/SePay. SePay là dịch vụ thanh toán, không phải model AI.
+2. **Giấy phép:** ưu tiên giấy phép OSI (Apache-2.0, MIT, BSD), chấp nhận GPL cho thành phần chạy riêng (Piper).
+   Model "mở trọng số" kèm điều khoản riêng (Llama Community License, Gemma Terms of Use) không dùng mặc định.
+   Giấy phép phi thương mại (CC BY-NC, Coqui CPML, Qwen Research) bị loại vì thiết bị để bán.
+3. **Đường tiền tất định (P1):** model chỉ chọn ý định / công cụ; giá, ưu đãi, tổng tiền, mã QR do code tính.
+
+### Bảng 1. Phương pháp đang dùng (theo thứ tự trong pipeline)
+
+| # | Khâu | Phương pháp đang dùng | Model / thư viện (giấy phép) | Code | Số liệu |
+|---|------|-----------------------|------------------------------|------|---------|
+| 1 | Thu âm, khử vọng, khử ồn | Khử vọng (AEC), khử ồn (NS), tự chỉnh âm lượng (AGC) của trình duyệt; AudioWorklet hạ mẫu 16 kHz, PCM16, gửi qua WebSocket | WebRTC trong Chromium (BSD-3) | `web/src/lib/audio.ts` | Chưa đo trong quán ồn |
+| 2 | Phát hiện giọng nói, chốt câu | VAD theo khung 32 ms; im lặng 0,5 s là hết câu; câu dài nhất 15 s | **Silero VAD** (MIT) chạy qua **sherpa-onnx** (Apache-2.0) | `speech/asr.py` (`VADSegmenter`) | Trễ chốt câu 500 ms (cấu hình) |
+| 3 | Nhận dạng giọng nói (ASR) | Transducer (RNN-T) giải mã cả câu sau VAD; modified beam search + **hotwords** (context graph) sinh tự động từ tên món/alias, score 1,5 | **Zipformer-vi 30M INT8** (`hynt/Zipformer-30M-RNNT-6000h`, giấy phép **cần kiểm chứng trên trang model**) + sherpa-onnx | `speech/asr.py` | WER 11,0% → 8,0% nhờ hotwords; 40–75 ms/câu; RTF ≈ 0,03 **[đo, giọng tổng hợp]** |
+| 4 | Phụ đề khi khách đang nói | Chạy lại ASR offline trên đoạn đang nói mỗi 0,6 s ("transcript tạm") | như #3 | `kiosk/server.py` (`_partial`) | Khoảng 50 ms/lần **[ước tính theo RTF]** |
+| 5 | Khách nói chen (barge-in) | Ngắt lời khi: khách nói ≥ 300 ms **và** ASR tạm ra chữ **và** không phải từ đệm ("ừ, dạ, vâng…") **và** không phải tiếng vọng (≥ 70% từ trùng câu Mai vừa nói). Ngắt thì huỷ lượt LLM, dừng loa, báo LLM khách đã nghe tới đâu | Luật | `kiosk/realtime.py`, `kiosk/server.py` | Chưa đo với giọng thật |
+| 6 | Chuẩn hoá văn bản | Luật: chữ thường, NFC, bỏ dấu để so khớp, đọc số tiếng Việt ↔ chữ số, "50k" → 50000; chuẩn hoá câu cho TTS ("55.000đ" → "năm mươi lăm nghìn đồng", "QR" → "kiu a") | Không dùng model | `textnorm.py` | — |
+| 7 | **Hiểu ý & dẫn dắt hội thoại** (chế độ chính) | **Agent LLM gọi công cụ** (function calling), stream từng mẩu chữ; system prompt tĩnh (tính cách + quy tắc + thực đơn) + ghi chú hệ thống đầu phiên (giờ, ưu đãi đang chạy); lịch sử chỉ nối thêm; tối đa 6 bước công cụ mỗi lượt; lọc `<think>` | **Qwen3-4B-Instruct-2507**, GGUF Q4_K_M (Apache-2.0), chạy bằng **llama.cpp** `llama-server --jinja` (MIT). Thay được bằng Ollama (MIT) / vLLM (Apache-2.0) | `agent/agent.py`, `agent/prompt.py`, `agent/local.py` | **Chưa đo với model thật** (§16.7) |
+| 8 | Thao tác nghiệp vụ | 7 công cụ tất định, kiểm tra lại mọi tham số (id món giới hạn trong menu, số lượng 1–20…): `add_to_cart`, `update_cart_item`, `recommend_dishes`, `show_dish`, `review_order`, `place_order`, `cancel_order` | Không dùng model | `agent/tools.py` | Test tự động |
+| 9 | Hiểu ý (dự phòng, chế độ `rules`) | NLU luật: ý định + thực thể, so khớp mờ tên món, đọc số lượng/khẩu vị/kiêng; máy trạng thái hội thoại | **rapidfuzz** (MIT) | `nlu.py`, `dialog.py` | Hiểu đúng 37/40 câu (92,5%); 0,8 ms/lượt **[đo]** |
+| 10 | Gợi ý món & bán thêm | Content-based: lọc cứng (chay, thành phần kiêng, ngân sách/người, vị không ăn được) → chấm điểm (vị thích, món nước/khô, bán chạy, đang ưu đãi, combo đúng số người, `boost` của quán) → đa dạng hoá theo nhóm; upsell đồ uống / món đi kèm | Không dùng model | `recommender.py` | < 1 ms |
+| 11 | Ưu đãi | Engine luật: điều kiện giờ/thứ/hoá đơn/món/combo; thử các tổ hợp, chọn phương án có lợi nhất cho khách; gợi ý "sắp đạt điều kiện" | Không dùng model | `promotions.py` | — |
+| 12 | Tổng hợp giọng nói (TTS) | VITS end-to-end; cache WAV theo câu; dựng sẵn câu cố định; **cắt câu khi chữ LLM đang chảy** (câu đầu cắt ở dấu phẩy để phát sớm, câu sau tổng hợp trong lúc câu trước đang phát); câu đệm "Dạ." sau 650 ms và "chờ em một chút" sau thêm 3,5 s nếu LLM còn chậm | **Piper** `piper-tts` (GPL-3.0), giọng **vi_VN-vais1000-medium** (dữ liệu VAIS-1000, CC BY 4.0), ONNX Runtime (MIT) | `speech/tts.py`, `kiosk/realtime.py` | Câu đầu 170–300 ms; câu có trong cache 0 ms **[đo]** |
+| 13 | Thanh toán | VietQR theo chuẩn EMVCo/NAPAS, CRC16, sinh offline; xác nhận tiền thủ công / SePay webhook / SePay polling | **segno** (BSD-3) vẽ QR | `vietqr.py`, `payments.py` | — |
+
+Tài nguyên trên thiết bị: phần giọng nói + server khoảng 350 MB RAM **[đo]**; Qwen3-4B Q4_K_M thêm khoảng 2,5 GB file và
+khoảng 3,5–4,5 GB RAM với ngữ cảnh 16K **[ước tính]**.
+
+### Bảng 2. Phương pháp đã nghiên cứu nhưng chưa dùng hoặc bị loại
+
+| Khâu | Phương pháp / model | Trạng thái | Lý do |
+|------|---------------------|------------|-------|
+| VAD | TEN VAD | Loại | Điều khoản cấm dùng để cạnh tranh với sản phẩm của Agora (§3) |
+| Chốt câu | EOT thích ứng theo NLU; model Smart Turn / Namo | Đề xuất (D2) | Giảm cắt ngang khi khách ngập ngừng; cần bộ test giọng thật |
+| ASR | Zipformer-vi 70.000 giờ (`zzasdf/viet_iter3_pseudo_label`) | Không dùng | WER trên câu gọi món không tốt hơn bản 30M **[đo]** |
+| ASR | PhoWhisper, Qwen3-ASR, parakeet-ctc-0.6b-vi, Vosk | Không dùng | Chậm / nặng / cần GPU trên thiết bị rẻ, hoặc WER kém hơn (§5.3). Giấy phép từng model **cần kiểm chứng** trước khi dùng |
+| ASR | LM chuyên ngành sinh từ mẫu câu, chọn giả thuyết theo NLU, fine-tune Zipformer | Đề xuất (§5.4–5.5) | Cần dữ liệu và bộ test thật |
+| NLU | Bộ phân loại PhoBERT / model nhỏ | Không làm | LLM đã đảm nhận phần hiểu ý; bộ luật chỉ còn là dự phòng |
+| LLM | Qwen3-1,7B, dòng Qwen3.5 nhỏ (Apache-2.0) | Dự phòng cho máy yếu | Nhanh hơn khoảng 2 lần, gọi công cụ kém chính xác hơn **[ước tính]**; cần chấm bằng kịch bản M12 |
+| LLM | Vistral-7B, SeaLLMs, Arcee-VyLinh-3B | Chưa dùng | Tiếng Việt tốt nhưng 3–7B chậm trên CPU; giấy phép **cần kiểm chứng** (VyLinh dựa trên Qwen2.5-3B: giấy phép gốc phi thương mại) |
+| LLM | Llama 3.x, Gemma | Không dùng mặc định | Điều khoản riêng, không phải giấy phép OSI (Gemma 4: **cần kiểm chứng**) |
+| LLM | API LLM đám mây (OpenAI, Claude, Gemini…) | Loại | Không phải mã nguồn mở, gửi lời khách ra ngoài, cần Internet |
+| TTS | VieNeu-TTS | Đánh giá sau | Chất lượng cao, model khoảng 1 GB; giấy phép **cần kiểm chứng** |
+| TTS | Kokoro-82M (Apache-2.0), Matcha-TTS | Chưa dùng | Chưa có giọng tiếng Việt chính thức |
+| TTS | XTTS-v2 / viXTTS (CPML), MMS-TTS (CC BY-NC), checkpoint F5-TTS (thường phi thương mại) | Loại | Giấy phép không cho dùng thương mại |
+| TTS | TTS đám mây (FPT.AI, Viettel AI, Zalo, Google, Azure) | Loại | Không phải mã nguồn mở, cần Internet |
+| Gợi ý | Lọc cộng tác, bandit, học từ lịch sử đơn | Để sau (M8) | Cần dữ liệu đơn thật |
+| Cài đặt quán | Nhập menu từ ảnh bằng VLM mã nguồn mở (họ Qwen-VL) | Đề xuất (D12) | Chạy một lần trên máy tính lúc cài đặt; giấy phép kiểm theo từng kích thước model |
 
 ---
 
@@ -78,8 +140,8 @@ cài đặt cho quán mới, và **dự phòng** cho câu khó khi có Internet 
 
 - **P1. Đường tiền là tất định.** Giá, ưu đãi, tổng tiền, nội dung QR chỉ do code tính. Model AI chỉ được đề xuất
   *ý định* và *thực thể*, sau đó được kiểm tra với menu thật.
-- **P2. Edge-first, cloud là tuỳ chọn.** Mọi chức năng bán hàng phải chạy khi mất mạng. Riêng xác nhận chuyển khoản
-  tự động cần mạng chiều ra.
+- **P2. Chỉ model mã nguồn mở, chạy trên thiết bị.** Mọi chức năng bán hàng phải chạy khi mất mạng; không gọi API AI
+  đám mây. Riêng xác nhận chuyển khoản tự động cần mạng chiều ra.
 - **P3. Rẻ trước, đắt sau, có cổng tin cậy (confidence gating).** Luật (≈1 ms) → mô hình nhỏ (≈10–50 ms) → LLM (giây).
   Chỉ đi tầng sau khi tầng trước không chắc chắn.
 - **P4. Đo trước khi đổi.** Mọi đề xuất đi kèm thí nghiệm và tiêu chí chấp nhận.
@@ -467,7 +529,7 @@ trừ tổng quát khi có quán cần.
 | Coqui XTTS-v2 / viXTTS | Coqui Public Model License | **Không** (phi thương mại) |
 | Meta MMS-TTS (vie) | CC-BY-NC 4.0 | **Không** |
 | Nhiều checkpoint F5-TTS | Thường phi thương mại do dữ liệu huấn luyện | **Kiểm tra từng checkpoint** |
-| TTS đám mây (FPT.AI, Viettel AI, Zalo, Google, Azure) | Theo hợp đồng | Được, trả phí theo ký tự |
+| TTS đám mây (FPT.AI, Viettel AI, Zalo, Google, Azure) | Theo hợp đồng | **Loại**: không phải mã nguồn mở (chính sách hệ thống) |
 
 ### 11.3. Đặc thù tiếng Việt & thương hiệu
 
@@ -496,9 +558,9 @@ RTF và độ trễ câu đầu trên Pi 5, tỉ lệ cache hit sau 1 tuần v�
 
 ### 12.1. Vai trò có giá trị (xếp theo ROI)
 
-1. **Nhập menu từ ảnh/PDF (khi cài đặt cho quán mới).** LLM đa phương thức đọc ảnh menu và sinh nháp `menu.yaml`
-   (tên, giá, alias, nhóm, vị ước lượng). Chủ quán duyệt lại. Rút thời gian onboarding từ hàng giờ xuống vài phút.
-   Chạy trên cloud một lần, **không chạy trên thiết bị**.
+1. **Nhập menu từ ảnh/PDF (khi cài đặt cho quán mới).** VLM mã nguồn mở (họ Qwen-VL) đọc ảnh menu và sinh nháp
+   `menu.yaml` (tên, giá, alias, nhóm, vị ước lượng). Chủ quán duyệt lại. Rút thời gian onboarding từ hàng giờ xuống
+   vài phút. Chạy một lần trên máy tính của bên cài đặt, **không chạy trên thiết bị**.
 2. **Dự phòng NLU** (đã thiết kế): chỉ khi ý định `unknown`. LLM viết lại thành câu lệnh chuẩn, rồi NLU luật xử lý tiếp.
 3. **Khai phá log** (offline, định kỳ): gom câu `unknown`, đề xuất alias, ý định mới, mẫu câu.
 4. **Hỏi đáp tự do về món** (thành phần, dị ứng) qua RAG trên dữ liệu menu. **Rủi ro cao** với câu hỏi dị ứng, nên trả lời
@@ -508,8 +570,9 @@ RTF và độ trễ câu đầu trên Pi 5, tỉ lệ cache hit sau 1 tuần v�
 
 | Lựa chọn | Ghi chú |
 |----------|---------|
+| **Qwen3-4B-Instruct-2507** (Apache-2.0) — **đang dùng** | Gọi công cụ tốt, tiếng Việt khá; GGUF Q4_K_M khoảng 2,5 GB |
 | Qwen3.5 dòng nhỏ (0,8B → 9B, Apache-2.0) **[công bố]** | Đa ngôn ngữ mạnh; cần tự đo tiếng Việt trên câu gọi món |
-| Gemma 4 E2B (khoảng 1,1 GB trên di động, nhận văn bản/ảnh/âm thanh) **[công bố]** | Hợp thiết bị yếu; cần đo tiếng Việt |
+| Gemma 4 E2B (khoảng 1,1 GB trên di động, nhận văn bản/ảnh/âm thanh) **[công bố]** | Hợp thiết bị yếu; điều khoản Gemma riêng (**cần kiểm chứng** có phải giấy phép mở không) |
 | Mô hình tinh chỉnh tiếng Việt (Vistral, VyLinh, SeaLLMs…) | Tốt tiếng Việt nhưng thường ≥ 3–7B |
 | Tốc độ trên Pi 5 | Llama 3.2 1B khoảng 11 token/s, Qwen2.5 3B khoảng 5,2 token/s (qua Ollama) **[công bố]** → câu JSON 30 token mất 3–6 s |
 | Jetson Orin Nano Super / RK3588 (RKLLM) | 1–4B chạy được ở tốc độ hội thoại; tăng 150–250 USD/bộ |
@@ -520,15 +583,15 @@ RTF và độ trễ câu đầu trên Pi 5, tỉ lệ cache hit sau 1 tuần v�
 - **Kiểm tra lại với menu:** mọi món/ý định LLM trả về phải ánh xạ được vào menu, nếu không thì bỏ.
 - **Không bao giờ** để LLM tính tiền, áp ưu đãi, sinh nội dung QR (P1).
 - Giới hạn thời gian (6 s) rồi quay về luật; ghi log để đánh giá.
-- Chi phí cloud dự phòng **[ước tính]:** ~300 token vào + 20 token ra mỗi lần, chỉ cho ~5% lượt (câu `unknown`) → rất nhỏ
-  so với STT/TTS cloud; điều kiện là có Internet.
+- Chỉ chạy LLM mã nguồn mở trên thiết bị (hoặc máy chủ trong quán), không có chi phí theo token.
 
 ### Đề xuất M11
-1. Làm **công cụ nhập menu từ ảnh** (ROI cao nhất, không ảnh hưởng thiết bị).
-2. Giữ LLM dự phòng **tắt mặc định**. Trước khi bật cục bộ, chấm Qwen3.5-2B và Gemma-4-E2B trên bộ test NLU (M6).
+1. Làm **công cụ nhập menu từ ảnh** bằng VLM mã nguồn mở (ROI cao nhất, không ảnh hưởng thiết bị).
+2. (Bản v0.1, đã thay bằng §16) LLM chỉ làm dự phòng cho bộ luật. Nay LLM là bộ não chính; vẫn cần chấm Qwen3-4B,
+   Qwen3.5 nhỏ trên bộ kịch bản gọi món (M12) để chọn model theo phần cứng.
 3. Không dùng LLM cho câu hỏi dị ứng nếu chưa có dữ liệu `allergens` chuẩn.
 
-**Cần quyết định:** D12. Có làm công cụ nhập menu bằng LLM (cloud) không. D13. Có bản phần cứng cao cấp chạy LLM cục bộ không.
+**Cần quyết định:** D12. Có làm công cụ nhập menu bằng VLM mã nguồn mở không. D13. Phần cứng chạy LLM cho chế độ hội thoại (§16.3).
 
 ---
 
@@ -597,8 +660,8 @@ log văn bản (unknown, hỏi lại, sửa đơn) → gom cụm hằng tuần (
 | D9 | Mục tiêu tối ưu của gợi ý | hài lòng / AOV / biên lợi nhuận | Hài lòng + AOV, biên lợi nhuận qua `boost` |
 | D10 | Nhắc khéo bằng món cụ thể | có / không | **Có**, tối đa 1 lần/đơn |
 | D11 | Giọng TTS | Bắc / Nam / theo quán; giọng thương hiệu | Theo vùng của quán; giọng thương hiệu là dịch vụ thêm |
-| D12 | Nhập menu bằng LLM (cloud) | có / không | **Có** |
-| D13 | Phần cứng chạy LLM cục bộ | có / không | Chỉ cho bản cao cấp |
+| D12 | Nhập menu bằng VLM mã nguồn mở (chạy lúc cài đặt) | có / không | **Có** |
+| D13 | Phần cứng chạy LLM hội thoại | CPU thường / mini PC mạnh / Jetson-Mac (GPU) | Mini PC mạnh hoặc GPU cho cảm giác thời gian thực (§16.3); máy yếu dùng chế độ `rules` |
 | D14 | Thu dữ liệu giọng có đồng ý | có / không | Có, giới hạn ở quán thí điểm |
 
 ---
@@ -653,60 +716,67 @@ Volinsky 2008) · BPR (Rendle et al. 2009) · LambdaMART (Burges 2010) · GRU4Re
 Bản v0.1 là "chọn món bằng giọng nói": mỗi câu được NLU luật đoán ý định rồi máy trạng thái trả lời theo mẫu.
 Chính xác và nhanh, nhưng không *nói chuyện* được: khách hỏi vòng vo, đổi ý giữa chừng, đùa, hỏi "món nào hợp
 trẻ con", nói chen khi Mai đang nói, thì hệ thống cứng nhắc. Yêu cầu mới là một nhân viên AI trò chuyện tự nhiên,
-thời gian thực. Vì vậy LLM được đưa vào giữa pipeline, còn mọi thứ dính tới **tiền** vẫn do code tất định làm.
+thời gian thực, và chỉ dùng model mã nguồn mở. Vì vậy một LLM mã nguồn mở chạy trên máy được đưa vào giữa pipeline,
+còn mọi thứ dính tới **tiền** vẫn do code tất định làm.
 
 ### 16.2. Kiến trúc
 
 ```
-micro ──PCM16──▶ Silero VAD ──▶ ASR Zipformer-vi (trên máy) ──▶ ConversationAgent ──stream chữ──▶ cắt câu ──▶ TTS Piper ──▶ loa
-   │               │  đang nói: ASR tạm 0,6 s/lần → phụ đề          │   ▲ gọi công cụ      (câu đầu cắt ở dấu phẩy,       │
-   │               │                                                ▼   │ kết quả            câu sau tổng hợp khi câu       │
-   │               └─ khách nói chen ≥ 300 ms, có chữ thật,     ToolBox (tất định)          trước đang phát)              │
-   │                  không phải "ừ/dạ", không phải tiếng vọng   giỏ hàng · gợi ý · xem món ·                              │
-   │                  → huỷ lượt, dừng loa, ghi chú cho LLM      phiếu gọi món · tạo đơn + VietQR · huỷ                   │
-   └── chạm màn hình → thao tác tất định + ghi chú "[Hệ thống: khách bấm ...]" cho lượt LLM kế tiếp ◀──────────────────┘
-          mất mạng / lỗi LLM → bộ luật offline v0.1 trả lời thay (nghỉ LLM 30 s rồi thử lại)
+micro ──PCM16──▶ Silero VAD ──▶ ASR Zipformer-vi ──▶ ConversationAgent ──stream chữ──▶ cắt câu ──▶ TTS Piper ──▶ loa
+   │               │  đang nói: ASR tạm 0,6 s/lần → phụ đề     │   ▲ gọi công cụ   (câu đầu cắt ở dấu phẩy,     │
+   │               │                                           ▼   │ kết quả         câu sau tổng hợp khi câu     │
+   │               └─ khách nói chen ≥ 300 ms, có chữ thật,  ToolBox (tất định)       trước đang phát)            │
+   │                  không phải "ừ/dạ", không phải tiếng    giỏ hàng · gợi ý · xem món ·                          │
+   │                  vọng → huỷ lượt, dừng loa, ghi chú     phiếu gọi món · tạo đơn + VietQR · huỷ               │
+   │                                                  ▲                                                          │
+   │                         LLM: Qwen3-4B-Instruct (Apache-2.0) trên llama.cpp `llama-server` (cùng máy)          │
+   └── chạm màn hình → thao tác tất định + ghi chú "[Hệ thống: khách bấm ...]" cho lượt LLM kế tiếp ◀───────────────┘
+        server LLM chưa chạy / lỗi → bộ luật offline v0.1 trả lời thay (nghỉ LLM 30 s rồi thử lại)
 ```
 
 | Thành phần | Cách làm | File |
 |---|---|---|
-| Prompt | Tính cách Mai, quy tắc nói (1–2 câu ngắn, câu đầu thật ngắn, không markdown, đọc giá "55 nghìn"), quy tắc nghiệp vụ, toàn bộ thực đơn. **Không chứa gì đổi theo giờ** → giống nhau mọi phiên, trúng cache cả ngày | `agent/prompt.py` |
+| Prompt | Tính cách Mai, quy tắc nói (1–2 câu ngắn, câu đầu thật ngắn, không markdown, đọc giá "55 nghìn"), quy tắc nghiệp vụ, toàn bộ thực đơn. **Không chứa gì đổi theo giờ** → giống nhau mọi phiên | `agent/prompt.py` |
 | Ghi chú đầu phiên | Giờ hiện tại + ưu đãi đang chạy, gửi trong lượt đầu tiên | `prompt.arrival_note` |
-| Công cụ | `add_to_cart`, `update_cart_item`, `recommend_dishes`, `show_dish`, `review_order`, `place_order`, `cancel_order`. Kiểm tra lại mọi tham số (id phải có trong menu, số lượng 1–20...), trả lỗi để model tự sửa | `agent/tools.py` |
-| Vòng lặp | Lịch sử chỉ nối thêm; lượt assistant có `tool_use` và `tool_result` ghi cùng lúc, nên huỷ lượt ở bất kỳ đâu vẫn hợp lệ; lượt bị ngắt thì lời khách sau nối vào cùng tin nhắn | `agent/agent.py` |
-| Miệng | Cắt câu khi chữ đang chảy, TTS tuần tự, câu đệm "Dạ." nếu sau 650 ms chưa có chữ (và bỏ "Dạ," ở câu thật để khỏi lặp), trình duyệt báo câu nào đã phát để biết khách nghe tới đâu khi ngắt lời | `kiosk/realtime.py` |
-| Tai | Phụ đề tạm khi khách đang nói; lọc tiếng "ừ/dạ" và tiếng vọng (so với câu Mai vừa nói) trước khi coi là ngắt lời | `kiosk/server.py` |
+| Công cụ | 7 công cụ tất định; kiểm tra lại mọi tham số, trả lỗi để model tự sửa; JSON hỏng → báo `INVALID_JSON` cho model gọi lại | `agent/tools.py` |
+| Vòng lặp | Lịch sử chỉ nối thêm; lượt có gọi công cụ và kết quả công cụ ghi cùng lúc, nên huỷ lượt ở bất kỳ đâu vẫn hợp lệ; lượt bị ngắt thì lời khách sau nối vào cùng tin nhắn | `agent/agent.py` |
+| Kết nối LLM | API Chat Completions tương thích OpenAI (chỉ là định dạng, server chạy trên máy): stream chữ, ghép mảnh tham số công cụ, lọc `<think>`, map lỗi để chuyển sang bộ luật | `agent/local.py` |
+| Miệng | Cắt câu khi chữ đang chảy, TTS tuần tự, câu đệm, trình duyệt báo câu nào đã phát để biết khách nghe tới đâu khi ngắt lời | `kiosk/realtime.py` |
+| Tai | Phụ đề tạm; lọc "ừ/dạ" và tiếng vọng trước khi coi là ngắt lời | `kiosk/server.py` |
 
 **Vì sao LLM không thể bịa giá:** model chỉ chọn công cụ và tham số. Giá, ưu đãi, tổng tiền, mã QR do code tính rồi
 trả lại cho model đọc. Prompt cấm tự tính tiền; nếu model vẫn đọc sai số, màn hình (phiếu gọi món, QR) vẫn đúng vì lấy
 từ công cụ. Món có thành phần khách kiêng bị lọc ngay trong `recommend_dishes`, không phụ thuộc model.
 
-### 16.3. Hai lựa chọn "bộ não" (`store.yaml → conversation.provider`)
+### 16.3. Chọn model mã nguồn mở theo phần cứng
 
-| | **Claude (cloud)** | **LLM chạy trên máy** (llama.cpp / Ollama) |
-|---|---|---|
-| Chất lượng hội thoại tiếng Việt, gọi công cụ | Cao nhất (Opus 5.5); Haiku 5.5 tốt, rất nhanh | Phụ thuộc model; 4B dùng được, 1,5–2B hay gọi sai công cụ hơn **[ước tính]** |
-| Cần Internet | Có (mất mạng → bộ luật offline) | Không |
-| Chi phí | Theo token (§16.5) | 0đ/lượt; tốn phần cứng mạnh hơn |
-| Độ trễ tới chữ đầu | Khoảng 0,6–1,5 s **[ước tính]** | CPU 4 nhân, model 4B: vài giây tới hơn 10 s/lượt có gọi công cụ; GPU/NPU (Jetson Orin, Apple M): khoảng 1,5–4 s **[ước tính]** |
-| Dữ liệu khách | Lời khách (dạng chữ) gửi lên Anthropic → cần thông báo quyền riêng tư tại kiosk | Ở lại trên máy |
-| Cấu hình | Đặt biến môi trường `ANTHROPIC_API_KEY` | `scripts/run_local_llm.sh` (llama-server `--jinja`, ctx 16K, 1 luồng, giữ KV cache) |
+Model mặc định: **Qwen3-4B-Instruct-2507**, GGUF Q4_K_M (Apache-2.0, bản không có chế độ "suy nghĩ" nên trả lời ngay),
+chạy bằng `scripts/run_local_llm.sh` (llama-server `--jinja`, ngữ cảnh 16K, 1 luồng, giữ KV cache) hoặc dịch vụ
+`deploy/aistaff-llm.service`. Tất cả số trong bảng là **[ước tính]**, phải đo lại bằng `aistaff chat --llm --debug`.
 
-`provider: auto` (mặc định): có API key thì dùng Claude, không thì dùng LLM local. Cả hai dùng chung agent, công cụ,
-prompt; `aistaff chat --llm` cho phép nói chuyện thử bằng bàn phím với bộ não thật để chấm chất lượng trước khi lắp micro.
+| Phần cứng | Model gợi ý | Một lượt có gọi công cụ | Đánh giá |
+|---|---|---|---|
+| Raspberry Pi 5 8 GB | Qwen3-1,7B Q4 | khoảng 10–20 s | Không đạt "thời gian thực" → dùng chế độ `rules` |
+| Mini PC Intel N100/N150 16 GB | Qwen3-1,7B (hoặc 4B) Q4 | khoảng 5–10 s (4B: 10–20 s) | Dùng được, khách phải chờ; câu đệm giúp đỡ im lặng |
+| Mini PC 8 nhân đời mới (DDR5, AVX-512) | Qwen3-4B Q4 | khoảng 4–8 s | Tạm được |
+| Jetson Orin Nano Super 8 GB (GPU) | Qwen3-4B Q4 | khoảng 2–4 s | Khuyên dùng cho bản "hội thoại" |
+| Mac mini dòng M (Metal) | Qwen3-4B / 8B Q4 | khoảng 1–3 s | Tốt nhất trong nhóm thiết bị để bàn |
 
-Chi tiết khi dùng Claude (theo tài liệu API hiện hành):
-- Mặc định `claude-opus-5-5`, `effort: low` (ít suy nghĩ nhất → chữ đầu ra sớm nhất; Opus 5.5 không tắt được thinking).
-  Đổi `claude-haiku-5-5` nếu cần nhanh và rẻ hơn nhiều.
-- **Fallback phía server đang bật** (`fallbacks: "default"`, beta `server-side-fallback-2026-07-01`) cho Opus 5.5:
-  nếu bộ lọc an toàn từ chối nhầm, API tự chạy lại trên model dự phòng. Haiku 5.5 không có cơ chế này.
-- Prompt cache: breakpoint ở cuối system prompt + cache tự động phần lịch sử; làm ấm cache bằng request `max_tokens: 0`
-  lúc khởi động và khi khách bắt đầu (bỏ qua nếu cache còn ấm).
-- Lượt từ chối (`stop_reason: refusal`) → câu trả lời an toàn rồi quay lại gọi món; lỗi mạng / hạn mức / sai key → bộ luật offline.
+Một lượt gọi món điển hình có 2 bước (gọi công cụ, rồi nói kết quả): mỗi bước tốn thời gian tính phần prompt mới
+(vài chục tới vài trăm token) và sinh 30–60 token.
 
-Chi tiết khi chạy local: system prompt cố định nên llama.cpp chỉ phải tính phần đầu (khoảng 5–6 nghìn token **[ước tính]**)
-một lần lúc khởi động (CPU: có thể 1–3 phút **[ước tính]**), các lượt sau chỉ tính phần mới. Model "biết suy nghĩ" (Qwen3 gốc)
-nên tắt thinking qua `extra_body`; phần `<think>` nếu lọt vào nội dung sẽ bị lọc, không bao giờ đọc ra loa.
+Những phương pháp đã dùng để giảm độ trễ khi chạy trên máy:
+- **System prompt + công cụ cố định** cho mọi phiên → llama.cpp dùng lại KV cache của phần đầu (khoảng 5–6 nghìn token
+  **[ước tính]**), chỉ tính phần mới mỗi lượt. Phần đầu được **làm ấm ngay khi kiosk khởi động** (CPU có thể mất 1–3 phút
+  **[ước tính]**, khách đầu tiên khỏi chờ).
+- **Lịch sử chỉ nối thêm** (không sửa lượt cũ) để KV cache không bị mất giữa cuộc nói chuyện.
+- **Nói trước khi xong:** prompt cho phép một câu xác nhận ngắn trước khi gọi công cụ; câu đầu cắt ở dấu phẩy; câu
+  đệm "Dạ." sau 650 ms và "chờ em một chút" sau thêm 3,5 s.
+- `max_tokens` 400, nhiệt độ 0,5; tắt chế độ suy nghĩ với model hybrid (`extra_body`).
+
+Hướng cải tiến chưa làm: rút gọn kết quả công cụ (ít token hơn), speculative decoding trong llama.cpp (model nháp nhỏ),
+ràng buộc ngữ pháp/JSON cho tham số công cụ, fine-tune LoRA một model 1,5–2B trên hội thoại gọi món tổng hợp để máy yếu
+cũng gọi công cụ đúng, chạy trên NPU RK3588 (RKLLM, cần chuyển đổi model).
 
 ### 16.4. Ngân sách độ trễ (một lượt "cho anh 2 tô phở bò")
 
@@ -714,43 +784,34 @@ nên tắt thinking qua `extra_body`; phần `<think>` nếu lọt vào nội du
 |---|---|
 | Khách ngừng nói → VAD chốt câu | 500 ms (cấu hình) **[đo]** |
 | ASR cả câu | 40–75 ms **[đo, CPU x86]** |
-| LLM tới chữ đầu (Claude) | 0,6–1,5 s **[ước tính]**; nếu chậm hơn 650 ms thì phát "Dạ." từ cache (0 ms) |
+| LLM tới chữ đầu | theo phần cứng ở §16.3 **[ước tính]**; "Dạ." đệm từ cache ở 650 ms |
 | TTS câu đầu | 170–300 ms **[đo]** |
-| **Khách nghe phản hồi** | khoảng 1,3–2,4 s sau khi ngừng nói với Claude **[ước tính]**; "Dạ." đệm ở khoảng 1,2 s |
+| **Khách nghe phản hồi** | "Dạ." ở khoảng 1,2 s; câu trả lời thật tuỳ phần cứng (GPU khoảng 2–4 s) **[ước tính]** |
 
-Model thường nói trước một câu ngắn ("Dạ, em lên món ngay.") rồi mới gọi công cụ, nên khách nghe phản hồi trong lúc
-công cụ chạy và model viết câu tiếp theo.
+### 16.5. Chi phí
 
-### 16.5. Chi phí Claude (ước tính, cần đối chiếu log `usage` sau khi chạy thật)
-
-Giả định một khách: 6 lượt nói, khoảng 10 request; phần đầu cố định khoảng 5.000 token (đọc từ cache), lịch sử trung bình
-1.500 token (đọc cache), 400 token mới/request (ghi cache), 120 token đầu ra/request (gồm thinking ngắn ở effort low).
-Giá: Opus 5.5 vào $4 / ra $20 / đọc cache $0,20 / ghi cache 5 phút $5 mỗi triệu token; Haiku 5.5 vào $0,10 / ra $0,50,
-đọc cache $0,01, ghi cache $0,125 mỗi triệu token (prompt ≤ 100K token).
-
-| Model | Mỗi request | Mỗi khách (≈10 request) | 100 đơn/ngày |
-|---|---|---|---|
-| claude-opus-5-5 | khoảng $0,0057 | khoảng $0,057 (≈1.500đ) | khoảng $5,7/ngày |
-| claude-haiku-5-5 | khoảng $0,00018 | khoảng $0,0018 (≈50đ) | khoảng $0,18/ngày |
-
-Cộng thêm một lần ghi cache phần đầu (Opus khoảng $0,025, Haiku khoảng $0,0006) mỗi khi cache nguội (quá 5 phút không có khách).
-Kiosk ghi `usage` của từng request vào log (`aistaff.agent`) để tính chi phí thật.
+Không có chi phí theo lượt (không gọi dịch vụ AI nào). Chi phí nằm ở phần cứng: thiết bị đủ mạnh để chạy LLM 4B
+(xem bảng §16.3 và docs/06), cộng điện năng. Máy yếu vẫn bán được với chế độ `rules` (bản v0.1, 0,8 ms/lượt).
 
 ### 16.6. Rủi ro & cách kiểm soát
 
-- **Sai tiền / bịa món:** không thể qua công cụ (giá do code tính, id món giới hạn bằng `enum`). Màn hình luôn hiện số từ công cụ.
+- **Model nhỏ hiểu sai / gọi sai công cụ:** công cụ kiểm tra tham số và trả lỗi để model sửa; mâm và tiền luôn hiện trên
+  màn hình để khách thấy; chọn model theo số đo M12.
+- **Sai tiền / bịa món:** không thể qua công cụ (giá do code tính, id món giới hạn bằng `enum`).
 - **Khách "giả" lệnh hệ thống bằng lời nói:** lời khách bị bỏ ký tự `[` `]` nên không giả được dòng `[Hệ thống: ...]`.
-- **Dị ứng:** lọc theo thành phần ngay trong công cụ. Vẫn cần trường `allergens` chuẩn trước khi cho AI trả lời câu hỏi dị ứng (M11).
-- **Mất mạng / LLM chậm:** bộ luật offline trả lời thay; lượt LLM đã kịp đổi mâm thì không chạy lại bằng luật (tránh thêm trùng).
+- **Dị ứng:** lọc theo thành phần ngay trong công cụ. Vẫn cần trường `allergens` chuẩn trước khi cho AI trả lời câu hỏi dị ứng.
+- **Server LLM chưa chạy / treo / lỗi:** bộ luật offline trả lời thay; lượt LLM đã kịp đổi mâm thì không chạy lại bằng luật (tránh thêm trùng).
 - **Tiếng vọng làm Mai tự ngắt lời mình:** cần micro/trình duyệt có khử vọng; thêm lọc "ừ/dạ" và so khớp với câu Mai vừa nói.
   Môi trường ồn hoặc loa to: tắt `barge_in` (micro tạm dừng khi Mai nói, như v0.1).
+- **Riêng tư:** giọng nói và lời khách không rời thiết bị; không lưu âm thanh.
 
 ### 16.7. Trạng thái kiểm thử
 
-- **[đo]** 140 test tự động qua: công cụ, vòng lặp agent (huỷ giữa chừng, từ chối, fallback, giới hạn bước), giao thức Claude
-  (qua HTTP giả lập: đúng tham số cache / effort / fallback, đưa lại khối thinking nguyên vẹn), giao thức LLM local, vòng giọng
-  nói của kiosk (câu đệm, ngắt lời, lọc "ừ" và tiếng vọng), luồng WebSocket tới VietQR, dự phòng bộ luật; giao diện kiểm tra bằng
-  trình duyệt headless (chữ chảy, thẻ gợi ý, AI mở món, mâm cập nhật). Phần LLM trong các test này là **kịch bản cố định**.
-- **Chưa chạy với model thật:** môi trường phát triển không có API key Claude, và chính sách mạng chặn huggingface.co nên chưa tải
-  được model local. Việc tiếp theo: chạy `aistaff chat --llm --debug` (Claude hoặc local) với bộ kịch bản gọi món ở M12, đo tỉ lệ
-  hoàn tất đơn, độ trễ chữ đầu, số lần gọi công cụ sai; chọn model local (Qwen3-4B-Instruct, dòng Qwen3.5 nhỏ, Gemma 4) theo số đo.
+- **[đo]** 132 test tự động qua: công cụ, vòng lặp agent (huỷ giữa chừng, giới hạn bước, tham số bị cắt), giao thức với
+  server LLM tương thích OpenAI (qua HTTP giả lập: stream chữ, ghép tham số công cụ, lọc `<think>`, lỗi kết nối), vòng
+  giọng nói của kiosk (câu đệm, câu đệm thứ hai, ngắt lời, lọc "ừ" và tiếng vọng), luồng WebSocket tới VietQR, dự phòng
+  bộ luật; giao diện kiểm tra bằng trình duyệt headless. Phần LLM trong các test này là **kịch bản cố định**.
+- **Chưa chạy với model thật:** chính sách mạng của môi trường phát triển chặn huggingface.co (không tải được file GGUF),
+  và việc chạy file `llama-server` tải về bị chặn. Việc tiếp theo: trên máy thật, chạy `scripts/run_local_llm.sh` rồi
+  `aistaff chat --llm --debug` với bộ kịch bản gọi món ở M12; đo tỉ lệ hoàn tất đơn, độ trễ chữ đầu, số lần gọi công cụ
+  sai; so sánh Qwen3-4B, Qwen3-1,7B, Qwen3.5 nhỏ trên từng phần cứng ở §16.3.

@@ -1,7 +1,7 @@
 """Vòng hội thoại thời gian thực ở kiosk: stream chữ -> câu -> TTS, câu đệm, ngắt lời, dự phòng bộ luật.
 
 LLM được thay bằng ScriptedProvider (kịch bản cố định) để kiểm tra logic của kiosk; xem test_local_llm.py
-và test_agent.py cho phần giao thức với LLM local / Claude.
+và test_agent.py cho phần giao thức với server LLM mã nguồn mở và vòng lặp agent.
 """
 
 import asyncio
@@ -247,3 +247,20 @@ def test_ws_llm_failure_falls_back_to_rules(rt_client):
         assert r["cart"]["subtotal"] == 115000 and len(p.calls) == n
         assert "assistant_start" not in [m["type"] for m in seen]
     assert client.get("/healthz").json()["conversation"] == "llm-offline"
+
+
+def test_second_filler_when_llm_is_slow(fast_cfg, storage, tmp_path, monkeypatch):
+    """LLM trên CPU yếu chậm: sau "Dạ." còn chưa có chữ -> nói thêm "chờ em một chút"."""
+    import aistaff.kiosk.server as srv
+
+    monkeypatch.setattr(srv, "PATIENCE_AFTER_S", 0.05)
+    k, c, ws, _ = make_kiosk(fast_cfg, storage, tmp_path, [["Dạ, có ngay ạ."]], first_delay=0.3)
+
+    async def scenario():
+        await k.on_user(c, "cho anh một trà đá")
+        await c.turn
+
+    asyncio.run(scenario())
+    tts = ws.of("tts")
+    assert [m["filler"] for m in tts][:2] == [True, True]
+    assert k.speech.tts.said[1] == tts_normalize(k.patience)

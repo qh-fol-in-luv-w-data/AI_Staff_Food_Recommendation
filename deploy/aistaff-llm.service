@@ -1,0 +1,20 @@
+[Unit]
+Description=AI Staff - LLM mã nguồn mở cho hội thoại (llama.cpp llama-server, Qwen3-4B-Instruct)
+After=network-online.target
+Wants=network-online.target
+Before=aistaff.service
+
+[Service]
+User=@USER@
+WorkingDirectory=@APP_DIR@
+Environment=LLAMA_SERVER=@LLAMA_SERVER@
+# Đổi model (GGUF mã nguồn mở có tool calling), số luồng, độ dài ngữ cảnh:
+#Environment=LOCAL_LLM_HF=unsloth/Qwen3-4B-Instruct-2507-GGUF:Q4_K_M
+#Environment=LOCAL_LLM_THREADS=4
+#Environment=LOCAL_LLM_CTX=16384
+ExecStart=/bin/bash @APP_DIR@/scripts/run_local_llm.sh
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

@@ -1,5 +1,7 @@
 # Bước 6 — Chọn phần cứng edge & tối ưu chi phí
 
+> **Lưu ý (11/2026):** hệ thống chỉ dùng **model mã nguồn mở chạy trên thiết bị**. Các dịch vụ AI đám mây nhắc trong tài liệu này chỉ để đối chiếu, không được dùng. Phương pháp đang dùng: [CORE-AI-RESEARCH → Phương pháp đang dùng trong hệ thống](CORE-AI-RESEARCH.md#phương-pháp-đang-dùng-trong-hệ-thống).
+
 > Câu hỏi: **thiết bị rẻ nhất** chạy mượt hệ thống là gì, tổng chi phí 1 bộ kiosk bao nhiêu, và so với dùng cloud thì sao?
 
 ## 6.1. Hệ thống cần bao nhiêu tài nguyên? (đo thực tế)

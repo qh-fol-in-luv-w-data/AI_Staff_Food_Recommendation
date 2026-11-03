@@ -4,10 +4,10 @@
      - gửi chữ gõ, thao tác chạm, hoặc âm thanh micro PCM16 16 kHz (trình duyệt tự khử vọng AEC)
      - nhận chữ AI đang nói (stream), giỏ hàng, gợi ý, mã QR, link âm thanh TTS để phát
 
-Hai chế độ hội thoại (store.yaml -> conversation.engine):
+Hai chế độ hội thoại (store.yaml -> conversation.engine), mọi model đều mã nguồn mở và chạy trên thiết bị:
   llm   (mặc định) : AI nói chuyện tự nhiên thời gian thực.
-                     micro -> VAD -> ASR (trên máy, có phụ đề tạm khi khách đang nói) -> Claude stream
-                     -> câu đầu đọc ngay -> TTS (trên máy) -> loa. Khách nói chen -> Mai dừng lại nghe.
+                     micro -> VAD -> ASR (có phụ đề tạm khi khách đang nói) -> LLM (llama.cpp/Ollama, stream)
+                     -> câu đầu đọc ngay -> TTS -> loa. Khách nói chen -> Mai dừng lại nghe.
                      Giỏ hàng / giá / ưu đãi / QR do công cụ tất định xử lý (agent/tools.py).
   rules            : bộ luật offline (NLU + dialog), cũng là phương án dự phòng khi mất mạng / lỗi API.
 /webhooks/sepay nhận báo có tiền -> đẩy màn hình "đã thanh toán" tới đúng phiên khách.
@@ -42,6 +42,7 @@ log = logging.getLogger("aistaff.kiosk")
 STATIC = Path(__file__).parent / "static"
 WEBUI = Path(__file__).parent / "webui"  # bản build React (web/ -> npm run build)
 SR = 16000
+PATIENCE_AFTER_S = 3.5  # sau câu đệm đầu mà LLM vẫn chưa nói gì -> câu đệm thứ hai
 
 
 @dataclass
@@ -96,6 +97,7 @@ class Kiosk:
         self._warm: dict[int, float] = {}
         a = cfg.store.assistant
         self.fillers = ["Dạ.", "Dạ vâng.", f"Dạ, {a.self_pronoun} nghe ạ."]
+        self.patience = f"{a.customer_pronoun.capitalize()} chờ {a.self_pronoun} một chút nhé."
 
     # ------------------------------------------------------------------ chế độ
     @property
@@ -186,7 +188,7 @@ class Kiosk:
 
     async def _prewarm(self, agent: Any) -> None:
         key = hash(agent.system)
-        ttl = getattr(self.provider, "prewarm_ttl", 240)  # Claude: cache sống 5 phút; local: KV cache giữ tới khi bị thay
+        ttl = getattr(self.provider, "prewarm_ttl", 240)  # KV cache của llama-server giữ phần đầu tới khi bị thay
         if time.time() - self._warm.get(key, 0) < ttl:
             return
         self._warm[key] = time.time()
@@ -299,13 +301,6 @@ class Kiosk:
         finally:
             if filler:
                 filler.cancel()
-        if res.refused:
-            out.cancel()
-            await self.send(c, {"type": "stop_audio", "turn": out.turn})
-            c.turn_seq += 1
-            out = c.out = SpeechOut(self, c, c.turn_seq)
-            await self.send(c, {"type": "assistant_start", "turn": out.turn, "replace": True})
-            await out.feed(res.text)
         await out.finish()
         s.updated_at = time.time()
         self._warm[hash(c.agent.system)] = time.time()
@@ -317,6 +312,9 @@ class Kiosk:
         await asyncio.sleep(self.conv.filler_delay_ms / 1000)
         if not out.full:
             out.filler(random.choice(self.fillers))
+        await asyncio.sleep(PATIENCE_AFTER_S)  # LLM trên CPU yếu có thể mất vài giây: báo khách chờ thêm
+        if not out.full:
+            out.filler(self.patience, again=True)
 
     async def _tool_event(self, c: Ctx, ev: dict) -> None:
         if ev.get("type") == "state" and ev.get("order") and ev["order"].get("code"):
@@ -520,7 +518,7 @@ class Kiosk:
         if self.speech and self.realtime:  # câu đệm có sẵn trong cache -> phát tức thì
             from ..textnorm import tts_normalize
 
-            for f in self.fillers:
+            for f in [*self.fillers, self.patience]:
                 await asyncio.to_thread(self.speech.tts.get, tts_normalize(f))
         last_warm = 0.0
         while True:
@@ -558,28 +556,20 @@ def _is_local(host: str | None) -> bool:
 
 
 def make_provider(cfg: StoreConfig) -> Any:
-    """Chọn bộ não hội thoại theo store.yaml -> conversation.provider."""
+    """Bộ não hội thoại: LLM mã nguồn mở trên thiết bị (store.yaml -> conversation.llm), hoặc None = bộ luật."""
     conv = cfg.store.conversation
     if conv.engine != "llm":
         return None
-    from ..agent.provider import AnthropicProvider
-
-    if conv.provider in ("auto", "anthropic") and AnthropicProvider.available(conv):
-        return AnthropicProvider(conv)
-    if conv.provider == "anthropic":
-        log.warning("provider: anthropic nhưng chưa đặt biến môi trường %s (hoặc chưa cài gói anthropic): "
-                    "hội thoại dùng bộ luật offline.", conv.api_key_env)
-        return None
     from ..agent.local import LocalProvider
 
-    log.info("LLM local tại %s (model %s). Chưa chạy server LLM thì kiosk tự dùng bộ luật offline.",
-             conv.local.base_url, conv.local.model)
+    log.info("LLM mã nguồn mở tại %s (model %s). Chưa chạy server LLM thì kiosk tự dùng bộ luật offline.",
+             conv.llm.base_url, conv.llm.model)
     return LocalProvider(conv)
 
 
 def create_app(store_dir: str | Path, db_path: str | Path = "data/aistaff.db", data_dir: str | Path = "data",
                speech: bool | None = None, now_fn=None, provider: Any = "auto") -> FastAPI:
-    """provider: "auto" = Claude nếu có API key; None = luôn dùng bộ luật; hoặc truyền provider khác (test)."""
+    """provider: "auto" = LLM theo store.yaml; None = luôn dùng bộ luật; hoặc truyền provider khác (test)."""
     cfg = load_store(store_dir)
     data = Path(data_dir)
     data.mkdir(parents=True, exist_ok=True)

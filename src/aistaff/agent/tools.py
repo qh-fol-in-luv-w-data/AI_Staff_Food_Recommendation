@@ -1,4 +1,4 @@
-"""Công cụ (tool use) cho Claude: mọi thao tác chạm tới giỏ hàng, giá, ưu đãi, đơn và QR đều tất định.
+"""Công cụ (function calling) cho LLM: mọi thao tác chạm tới giỏ hàng, giá, ưu đãi, đơn và QR đều tất định.
 
 LLM chỉ quyết định *gọi công cụ nào với tham số gì*. Code kiểm tra lại từng tham số (id món phải có trong
 menu, số lượng hợp lệ...). Code tính tiền, áp ưu đãi, tạo mã QR, rồi trả kết quả gọn để LLM nói lại.
@@ -125,9 +125,6 @@ class ToolBox:
                 "input_schema": {"type": "object", "properties": {}, "additionalProperties": False},
             },
         ]
-        # Streaming + công cụ phía client: bật eager input streaming; code tự kiểm tra tham số (validate bên dưới)
-        for t in tools:
-            t["eager_input_streaming"] = True
         return tools
 
     # ================================================================== chạy công cụ

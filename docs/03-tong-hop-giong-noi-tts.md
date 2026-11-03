@@ -1,5 +1,7 @@
 # Bước 3 — Tổng hợp giọng nói tiếng Việt (TTS / Text-to-Speech)
 
+> **Lưu ý (11/2026):** hệ thống chỉ dùng **model mã nguồn mở chạy trên thiết bị**. Các dịch vụ AI đám mây nhắc trong tài liệu này chỉ để đối chiếu, không được dùng. Phương pháp đang dùng: [CORE-AI-RESEARCH → Phương pháp đang dùng trong hệ thống](CORE-AI-RESEARCH.md#phương-pháp-đang-dùng-trong-hệ-thống).
+
 > Câu hỏi: giọng nào **nghe rõ, tự nhiên vừa đủ**, **phát ngay** khi khách vừa nói xong, chạy offline, chi phí 0đ?
 
 ## 3.1. Các lựa chọn

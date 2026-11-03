@@ -1,6 +1,6 @@
 """AI hội thoại thời gian thực: LLM dẫn dắt cuộc nói chuyện, công cụ tất định lo giỏ hàng & tiền.
 
-  khách nói -> ASR (trên máy) -> ConversationAgent (Claude, streaming) --gọi công cụ--> ToolBox
+  khách nói -> ASR (trên máy) -> ConversationAgent (LLM mã nguồn mở, streaming) --gọi công cụ--> ToolBox
                                          │ chữ chảy ra từng câu                       (giỏ, gợi ý, QR)
                                          ▼
                                   TTS (trên máy) -> loa      (khách nói chen -> huỷ lượt, Mai dừng nói)

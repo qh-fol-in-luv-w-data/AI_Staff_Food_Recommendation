@@ -1,5 +1,7 @@
 # Bước 2 — Nhận dạng giọng nói tiếng Việt (ASR / Speech-to-Text)
 
+> **Lưu ý (11/2026):** hệ thống chỉ dùng **model mã nguồn mở chạy trên thiết bị**. Các dịch vụ AI đám mây nhắc trong tài liệu này chỉ để đối chiếu, không được dùng. Phương pháp đang dùng: [CORE-AI-RESEARCH → Phương pháp đang dùng trong hệ thống](CORE-AI-RESEARCH.md#phương-pháp-đang-dùng-trong-hệ-thống).
+
 > Câu hỏi: model nào **nghe tiếng Việt đủ đúng** cho câu gọi món, **chạy offline trên CPU ARM**, với chi phí 0đ/lượt?
 
 ## 2.1. Các lựa chọn đã khảo sát (11/2026)

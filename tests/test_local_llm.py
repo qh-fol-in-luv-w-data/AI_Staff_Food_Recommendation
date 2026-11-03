@@ -48,7 +48,7 @@ def text_turn(text):
 
 
 def provider(handler, **local):
-    conv = Conversation(provider="local", local=LocalLLM(**local))
+    conv = Conversation(llm=LocalLLM(**local))
     return LocalProvider(conv, client=httpx.AsyncClient(transport=httpx.MockTransport(handler)))
 
 
@@ -185,13 +185,11 @@ def test_server_not_running():
         asyncio.run(provider(handler).prewarm("S", []))
 
 
-def test_make_provider_auto(monkeypatch, cfg):
+def test_make_provider(cfg):
     from aistaff.kiosk.server import make_provider
 
-    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
-    assert type(make_provider(cfg)).__name__ == "LocalProvider"
-    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-test")
-    assert type(make_provider(cfg)).__name__ == "AnthropicProvider"
+    p = make_provider(cfg)
+    assert type(p).__name__ == "LocalProvider" and p.base == "http://127.0.0.1:8080/v1"
     rules = cfg.model_copy(deep=True)
     rules.store.conversation.engine = "rules"
     assert make_provider(rules) is None

@@ -1,12 +1,13 @@
-"""ConversationAgent: một cuộc nói chuyện với một khách, do Claude dẫn dắt.
+"""ConversationAgent: một cuộc nói chuyện với một khách, do LLM mã nguồn mở (chạy trên máy) dẫn dắt.
 
 Vòng lặp mỗi lượt khách nói:
-  lời khách (+ ghi chú hệ thống) -> Claude stream chữ (đọc ngay) -> nếu gọi công cụ: chạy ToolBox
-  (tất định) -> trả kết quả -> Claude nói tiếp ... cho tới khi Claude ngừng gọi công cụ.
+  lời khách (+ ghi chú hệ thống) -> LLM stream chữ (đọc ngay) -> nếu gọi công cụ: chạy ToolBox
+  (tất định) -> trả kết quả -> LLM nói tiếp ... cho tới khi LLM ngừng gọi công cụ (tối đa max_steps bước).
 
-Quy tắc lịch sử (bắt buộc với preserved thinking của Claude):
-- system prompt và danh sách tools dựng MỘT LẦN, giữ nguyên từng byte cả phiên.
-- Lịch sử chỉ NỐI THÊM: nội dung assistant đưa lại nguyên vẹn (kể cả khối thinking), không sửa/xoá lượt cũ.
+Quy tắc lịch sử:
+- system prompt và danh sách tools dựng MỘT LẦN, giống hệt nhau mọi phiên -> llama.cpp tái dùng KV cache
+  của phần đầu dài nhất (vài nghìn token), chỉ phải tính phần mới mỗi lượt.
+- Lịch sử chỉ NỐI THÊM, không sửa/xoá lượt cũ (sửa giữa chừng làm mất KV cache từ chỗ sửa trở đi).
 - Lượt assistant có tool_use và tin nhắn tool_result tương ứng được ghi CÙNG LÚC (không có await ở giữa),
   nên huỷ lượt (khách nói chen) ở bất kỳ điểm nào cũng để lại lịch sử hợp lệ.
 - Lượt bị huỷ trước khi model trả lời xong: tin nhắn user cuối vẫn mở, lời khách tiếp theo được nối vào nó.
@@ -42,30 +43,8 @@ def clean_customer_text(text: str, limit: int = 500) -> str:
     return _SPACES.sub(" ", _BRACKETS.sub(" ", text or "")).strip()[:limit]
 
 
-def _fallback_boundary(content: list[Any]) -> int:
-    idx = -1
-    for i, b in enumerate(content):
-        if block_type(b) == "fallback":
-            idx = i
-    return idx
-
-
-def echo_content(content: list[Any]) -> list[Any]:
-    """Nội dung assistant đưa lại vào lịch sử.
-
-    Bình thường: nguyên vẹn. Sau fallback giữa chừng (model chính từ chối, model dự phòng nói tiếp): trước mốc
-    `fallback` cuối chỉ giữ khối text (bỏ thinking/tool_use của lượt bị từ chối); bỏ chính khối mốc; sau mốc giữ hết.
-    """
-    idx = _fallback_boundary(content)
-    if idx < 0:
-        return list(content)
-    return [b for i, b in enumerate(content) if (i < idx and block_type(b) == "text") or i > idx]
-
-
 def tool_calls(content: list[Any]) -> list[Any]:
-    """Các tool_use cần chạy: chỉ những khối sau mốc fallback cuối (nếu có)."""
-    idx = _fallback_boundary(content)
-    return [b for i, b in enumerate(content) if i > idx and block_type(b) == "tool_use"]
+    return [b for b in content if block_type(b) == "tool_use"]
 
 
 @dataclass
@@ -76,7 +55,6 @@ class TurnResult:
     model: str = ""
     usage: dict = field(default_factory=dict)
     ttft_ms: float | None = None
-    refused: bool = False
 
 
 class ConversationAgent:
@@ -96,9 +74,6 @@ class ConversationAgent:
         self._notes: list[str] = []
         self.totals: dict[str, int] = {k: 0 for k in USAGE_KEYS} | {"requests": 0}
         self.turn_tools: list[str] = []      # công cụ đã chạy trong lượt hiện tại (kể cả lượt bị huỷ/lỗi)
-        a = cfg.store.assistant
-        self.refusal_reply = (f"Dạ, chuyện này {a.self_pronoun} xin phép không hỗ trợ được ạ. "
-                              f"Mình quay lại chọn món nhé, {a.customer_pronoun} muốn dùng gì ạ?")
 
     # ================================================================== lịch sử
     def seed_greeting(self, greeting: str) -> None:
@@ -180,15 +155,8 @@ class ConversationAgent:
                 result.usage[k] = result.usage.get(k, 0) + v
             if result.ttft_ms is None and res.ttft_ms is not None:
                 result.ttft_ms = res.ttft_ms
-            if res.stop_reason == "refusal":
-                # Cả chuỗi model (kể cả dự phòng) đều từ chối: bỏ phần dở, trả lời an toàn rồi quay lại gọi món
-                log.warning("LLM từ chối lượt này (stop_reason=refusal)")
-                self.messages.append({"role": "assistant", "content": [{"type": "text", "text": self.refusal_reply}]})
-                result.refused = True
-                result.text = self.refusal_reply
-                return result
-            content = echo_content(res.content) or [{"type": "text", "text": "Dạ."}]
-            calls = tool_calls(res.content)
+            content = list(res.content) or [{"type": "text", "text": "Dạ."}]
+            calls = tool_calls(content)
             self.messages.append({"role": "assistant", "content": content})
             if not calls:
                 if on_step:
@@ -227,4 +195,4 @@ class ConversationAgent:
             return None
 
 
-__all__ = ["ConversationAgent", "ProviderError", "TurnResult", "clean_customer_text", "echo_content", "tool_calls"]
+__all__ = ["ConversationAgent", "ProviderError", "TurnResult", "clean_customer_text", "tool_calls"]

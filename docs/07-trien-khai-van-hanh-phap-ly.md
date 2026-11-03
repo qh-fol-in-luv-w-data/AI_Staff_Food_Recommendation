@@ -1,5 +1,7 @@
 # Bước 7 — Triển khai, vận hành, pháp lý & lộ trình
 
+> **Lưu ý (11/2026):** hệ thống chỉ dùng **model mã nguồn mở chạy trên thiết bị**. Các dịch vụ AI đám mây nhắc trong tài liệu này chỉ để đối chiếu, không được dùng. Phương pháp đang dùng: [CORE-AI-RESEARCH → Phương pháp đang dùng trong hệ thống](CORE-AI-RESEARCH.md#phương-pháp-đang-dùng-trong-hệ-thống).
+
 ## 7.1. Cài đặt lên thiết bị (1 lệnh)
 
 ```bash

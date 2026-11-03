@@ -1,8 +1,8 @@
-"""LLM chạy ngay trên máy (hoặc máy chủ trong quán) qua API Chat Completions tương thích OpenAI.
+"""Bộ não hội thoại: LLM MÃ NGUỒN MỞ chạy ngay trên máy (hoặc máy chủ trong quán) qua API Chat Completions
+tương thích OpenAI (chỉ là định dạng giao tiếp, không gọi dịch vụ nào bên ngoài).
 
-Dùng được với: llama.cpp `llama-server --jinja` (khuyên dùng), Ollama, vLLM, LM Studio.
-Cùng vòng lặp agent, cùng bộ công cụ tất định như khi dùng Claude: model chỉ chọn công cụ + tham số;
-giỏ hàng, giá, ưu đãi, mã QR vẫn do code tính.
+Dùng được với: llama.cpp `llama-server --jinja` (khuyên dùng), Ollama, vLLM. Model mặc định Qwen3-4B-Instruct-2507
+(Apache-2.0). Model chỉ chọn công cụ + tham số; giỏ hàng, giá, ưu đãi, mã QR vẫn do code tính.
 
 Lịch sử hội thoại của agent giữ dạng khối (text / tool_use / tool_result) và được chuyển sang dạng
 OpenAI (assistant.tool_calls + role "tool") mỗi lần gọi. System prompt + tools giống hệt nhau giữa các
@@ -111,7 +111,7 @@ class LocalProvider:
 
     def __init__(self, conv: Conversation, client: httpx.AsyncClient | None = None):
         self.conv = conv
-        self.cfg = conv.local
+        self.cfg = conv.llm
         self.base = self.cfg.base_url.rstrip("/")
         self.model = self.cfg.model
         self.client = client or httpx.AsyncClient(timeout=httpx.Timeout(self.cfg.timeout_seconds, connect=3.0))
@@ -246,7 +246,9 @@ class LocalProvider:
                          max_tokens=1, stream=False)
         t0 = time.perf_counter()
         try:
-            r = await self.client.post(f"{self.base}/chat/completions", json=body, headers=self._headers())
+            # lần đầu trên CPU có thể mất vài phút (tính cả phần đầu prompt) -> chờ lâu hơn request thường
+            r = await self.client.post(f"{self.base}/chat/completions", json=body, headers=self._headers(),
+                                       timeout=httpx.Timeout(max(600.0, self.cfg.timeout_seconds), connect=3.0))
         except httpx.HTTPError as e:
             raise ProviderError(f"không kết nối được LLM local {self.base}: {e}", "network") from e
         if r.status_code >= 400:

@@ -1,5 +1,7 @@
 # Bước 4 — Hiểu ý khách (NLU), hội thoại, gợi ý món & ưu đãi
 
+> **Lưu ý (11/2026):** hệ thống chỉ dùng **model mã nguồn mở chạy trên thiết bị**. Các dịch vụ AI đám mây nhắc trong tài liệu này chỉ để đối chiếu, không được dùng. Phương pháp đang dùng: [CORE-AI-RESEARCH → Phương pháp đang dùng trong hệ thống](CORE-AI-RESEARCH.md#phương-pháp-đang-dùng-trong-hệ-thống).
+
 > Câu hỏi: làm sao để AI **hiểu đúng món + số lượng + khẩu vị**, **gợi ý có lý do**, **chủ động giới thiệu ưu đãi**,
 > mà vẫn chạy ~1 ms trên CPU yếu và **không bao giờ tính sai tiền**?
 

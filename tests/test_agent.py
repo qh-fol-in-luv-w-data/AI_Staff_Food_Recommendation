@@ -1,4 +1,5 @@
-"""AI hội thoại: công cụ tất định, vòng lặp agent, provider Claude (qua HTTP giả lập, không cần mạng)."""
+"""AI hội thoại: công cụ tất định và vòng lặp agent (LLM thay bằng kịch bản cố định; giao thức với server LLM
+mã nguồn mở được kiểm tra trong test_local_llm.py)."""
 
 import asyncio
 import json
@@ -6,8 +7,7 @@ import json
 import pytest
 
 from aistaff.agent import ConversationAgent, ProviderError, ToolBox
-from aistaff.agent.agent import echo_content, tool_calls
-from aistaff.agent.provider import FALLBACK_BETA, AnthropicProvider
+from aistaff.agent.agent import tool_calls
 
 from .conftest import TUE_HAPPY
 from .fakes import ScriptedProvider
@@ -38,10 +38,10 @@ def test_tool_specs_are_valid_and_stable(tb, dm):
     names = [t["name"] for t in specs]
     assert names == ["add_to_cart", "update_cart_item", "recommend_dishes", "show_dish", "review_order",
                      "place_order", "cancel_order"]
-    assert all(t["eager_input_streaming"] is True and t["input_schema"]["type"] == "object" for t in specs)
+    assert all(t["input_schema"]["type"] == "object" and t["description"] for t in specs)
     ids = specs[0]["input_schema"]["properties"]["item_id"]["enum"]
     assert "pho-bo-tai" in ids and "combo-doi" in ids
-    # cùng menu -> định nghĩa giống hệt từng byte (prompt cache + preserved thinking)
+    # cùng menu -> định nghĩa giống hệt từng byte (llama.cpp tái dùng KV cache của phần đầu prompt)
     assert json.dumps(ToolBox(dm, dm.new_session()).specs()) == json.dumps(specs)
 
 
@@ -150,7 +150,7 @@ def assert_valid_history(msgs):
 
 def test_agent_turn_with_tools(dm):
     ag, p = make_agent(dm, [
-        [("thinking",), "Dạ, em lên món ngay.", ("tool", "add_to_cart", {"item_id": "pho-bo-tai", "quantity": 2})],
+        ["Dạ, em lên món ngay.", ("tool", "add_to_cart", {"item_id": "pho-bo-tai", "quantity": 2})],
         ["Dạ, em thêm 2 tô phở bò tái rồi ạ. Anh dùng thêm trà đá không?"],
     ])
     ag.seed_greeting("Dạ xin chào quý khách!")
@@ -159,8 +159,8 @@ def test_agent_turn_with_tools(dm):
     assert text == "Dạ, em lên món ngay. Dạ, em thêm 2 tô phở bò tái rồi ạ. Anh dùng thêm trà đá không?"
     assert [e["type"] for e in events] == ["state", "cart"] and ag.s.cart.qty_of("pho-bo-tai") == 2
     assert_valid_history(ag.messages)
-    # thinking block được đưa lại nguyên vẹn; system/tools giữ nguyên giữa các request
-    assert ag.messages[3]["content"][0]["type"] == "thinking"
+    # system/tools giữ nguyên giữa các request
+    assert [b["type"] for b in ag.messages[3]["content"]] == ["text", "tool_use"]
     assert p.calls[0]["system"] == p.calls[1]["system"] and p.calls[0]["tools"] == p.calls[1]["tools"]
     # request 2 nối thêm đúng 2 tin (assistant + tool_result), không sửa tin cũ
     assert p.calls[1]["messages"][: len(p.calls[0]["messages"])] == p.calls[0]["messages"]
@@ -209,23 +209,6 @@ def test_cancelled_turn_keeps_history_valid(dm):
     assert text.startswith("Dạ vâng")
 
 
-def test_refusal_and_fallback_blocks(dm):
-    ag, _ = make_agent(dm, [(["Phần dở dang"], "refusal")])
-    res, _, _ = run(collect(ag, "..."))
-    assert res.refused and ag.messages[-1]["content"][0]["text"] == ag.refusal_reply
-    content = [{"type": "thinking", "thinking": "", "signature": "s"}, {"type": "text", "text": "Dạ"},
-               {"type": "tool_use", "id": "t1", "name": "show_dish", "input": {}},
-               {"type": "fallback", "from": {"model": "a"}, "to": {"model": "b"}},
-               {"type": "text", "text": " vâng"}, {"type": "tool_use", "id": "t2", "name": "show_dish", "input": {}}]
-    assert [b["type"] for b in echo_content(content)] == ["text", "text", "tool_use"]
-    assert [b["id"] for b in tool_calls(content)] == ["t2"]
-    ag2, _ = make_agent(dm, [[("fallback",), "Dạ, em xem nhé.", ("tool", "show_dish", {"item_id": "pho-ga"})],
-                              ["Phở gà nước trong ạ."]])
-    res, _, events = run(collect(ag2, "phở gà sao em"))
-    assert events == [{"type": "show_dish", "id": "pho-ga"}]
-    assert all(b["type"] != "fallback" for m in ag2.messages for b in m["content"] if isinstance(b, dict))
-
-
 def test_max_tokens_tool_use_not_executed(dm):
     ag, _ = make_agent(dm, [([("tool", "add_to_cart", {"item_id": "pho-ga"})], "max_tokens"), ["Dạ."]])
     run(collect(ag, "phở gà"))
@@ -251,127 +234,3 @@ def test_provider_error_propagates_and_history_stays_open(dm):
     ag.note('Mai (dự phòng) đã trả lời: "Dạ còn ạ".')
     run(collect(ag, "cho một tô"))
     assert_valid_history(ag.messages)
-
-
-# ============================================================ provider Claude qua HTTP giả lập
-httpx2 = pytest.importorskip("httpx2")
-anthropic = pytest.importorskip("anthropic")
-
-
-def sse(events):
-    return "".join(f"event: {e['type']}\ndata: {json.dumps(e, ensure_ascii=False)}\n\n" for e in events).encode()
-
-
-def stream_body(model="claude-opus-5-5"):
-    usage = {"input_tokens": 12, "output_tokens": 1, "cache_read_input_tokens": 4100, "cache_creation_input_tokens": 0}
-    return sse([
-        {"type": "message_start", "message": {"id": "msg_1", "type": "message", "role": "assistant", "model": model,
-                                              "content": [], "stop_reason": None, "stop_sequence": None, "usage": usage}},
-        {"type": "content_block_start", "index": 0, "content_block": {"type": "thinking", "thinking": "", "signature": ""}},
-        {"type": "content_block_delta", "index": 0, "delta": {"type": "signature_delta", "signature": "sig-abc"}},
-        {"type": "content_block_stop", "index": 0},
-        {"type": "content_block_start", "index": 1, "content_block": {"type": "text", "text": ""}},
-        {"type": "content_block_delta", "index": 1, "delta": {"type": "text_delta", "text": "Dạ, em "}},
-        {"type": "content_block_delta", "index": 1, "delta": {"type": "text_delta", "text": "lên món ngay."}},
-        {"type": "content_block_stop", "index": 1},
-        {"type": "content_block_start", "index": 2,
-         "content_block": {"type": "tool_use", "id": "toolu_9", "name": "add_to_cart", "input": {}}},
-        {"type": "content_block_delta", "index": 2, "delta": {"type": "input_json_delta", "partial_json": "{\"item_id\": \"pho-ga\", "}},
-        {"type": "content_block_delta", "index": 2, "delta": {"type": "input_json_delta", "partial_json": "\"quantity\": 2}"}},
-        {"type": "content_block_stop", "index": 2},
-        {"type": "message_delta", "delta": {"stop_reason": "tool_use", "stop_sequence": None}, "usage": {"output_tokens": 37}},
-        {"type": "message_stop"},
-    ])
-
-
-def mock_provider(handler, model="claude-opus-5-5", effort="low"):
-    from aistaff.config import Conversation
-
-    conv = Conversation(model=model, effort=effort)
-    client = anthropic.AsyncAnthropic(api_key="sk-test", max_retries=0,
-                                      http_client=httpx2.AsyncClient(transport=httpx2.MockTransport(handler)))
-    return AnthropicProvider(conv, client=client)
-
-
-def test_anthropic_provider_stream_request_and_parse(tb):
-    seen = {}
-
-    def handler(request):
-        seen["body"] = json.loads(request.content)
-        seen["beta"] = request.headers.get("anthropic-beta", "")
-        return httpx2.Response(200, headers={"content-type": "text/event-stream"}, content=stream_body())
-
-    prov = mock_provider(handler)
-    deltas = []
-
-    async def on_text(d):
-        deltas.append(d)
-
-    msgs = [{"role": "user", "content": [{"type": "text", "text": "cho anh 2 tô phở gà"}]}]
-    res = run(prov.step("SYSTEM", tb.specs(), msgs, on_text))
-    body = seen["body"]
-    assert body["model"] == "claude-opus-5-5" and body["stream"] is True
-    assert body["system"][-1]["cache_control"] == {"type": "ephemeral"}
-    assert body["cache_control"] == {"type": "ephemeral"}  # cache dần lịch sử hội thoại
-    assert body["output_config"] == {"effort": "low"} and "thinking" not in body
-    assert body["fallbacks"] == "default" and FALLBACK_BETA in seen["beta"]
-    assert body["tools"][0]["eager_input_streaming"] is True and "tool_choice" not in body
-    assert deltas == ["Dạ, em ", "lên món ngay."]
-    assert res.stop_reason == "tool_use" and res.usage["cache_read_input_tokens"] == 4100
-    types = [b.type for b in res.content]
-    assert types == ["thinking", "text", "tool_use"] and res.content[0].signature == "sig-abc"
-    assert tool_calls(res.content)[0].input == {"item_id": "pho-ga", "quantity": 2}
-    # đưa nguyên nội dung SDK trả về vào lịch sử rồi gửi request kế tiếp: thinking (kèm chữ ký) phải còn nguyên
-    msgs += [{"role": "assistant", "content": res.content},
-             {"role": "user", "content": [{"type": "tool_result", "tool_use_id": "toolu_9", "content": "{}"}]}]
-    run(prov.step("SYSTEM", tb.specs(), msgs, on_text))
-    replay = seen["body"]["messages"][1]["content"]
-    assert replay[0] == {"type": "thinking", "thinking": "", "signature": "sig-abc"}
-    assert replay[2]["type"] == "tool_use" and replay[2]["input"] == {"item_id": "pho-ga", "quantity": 2}
-
-
-def test_anthropic_provider_haiku_has_no_fallback_and_prewarm(tb):
-    seen = {}
-
-    def handler(request):
-        seen["body"] = json.loads(request.content)
-        seen["beta"] = request.headers.get("anthropic-beta", "")
-        return httpx2.Response(200, json={"id": "msg_0", "type": "message", "role": "assistant", "model": "claude-haiku-5-5",
-                                          "content": [], "stop_reason": "max_tokens", "stop_sequence": None,
-                                          "usage": {"input_tokens": 5, "output_tokens": 0,
-                                                    "cache_creation_input_tokens": 4100, "cache_read_input_tokens": 0}})
-
-    prov = mock_provider(handler, model="claude-haiku-5-5")
-    u = run(prov.prewarm("SYSTEM", tb.specs()))
-    body = seen["body"]
-    assert body["max_tokens"] == 0 and not body.get("stream") and "cache_control" not in body
-    assert body["system"][-1]["cache_control"] == {"type": "ephemeral"} and body["output_config"] == {"effort": "low"}
-    assert "fallbacks" not in body and FALLBACK_BETA not in seen["beta"]
-    assert u["cache_creation_input_tokens"] == 4100
-
-
-@pytest.mark.parametrize("status,kind", [(401, "auth"), (429, "rate_limit"), (529, "overloaded"), (500, "server"),
-                                         (400, "bad_request")])
-def test_anthropic_provider_error_mapping(tb, status, kind):
-    def handler(request):
-        return httpx2.Response(status, json={"type": "error", "error": {"type": "x", "message": "boom"}})
-
-    async def on_text(d):
-        pass
-
-    with pytest.raises(ProviderError) as ei:
-        run(mock_provider(handler).step("S", tb.specs(), [{"role": "user", "content": "hi"}], on_text))
-    assert ei.value.kind == kind
-
-
-def test_anthropic_provider_network_error(tb):
-    def handler(request):
-        raise httpx2.ConnectError("no route to host")
-
-    async def on_text(d):
-        pass
-
-    with pytest.raises(ProviderError) as ei:
-        run(mock_provider(handler).step("S", tb.specs(), [{"role": "user", "content": "hi"}], on_text))
-    assert ei.value.kind == "network"
-    assert not AnthropicProvider.available(type("C", (), {"api_key_env": "AISTAFF_NO_SUCH_KEY"})())

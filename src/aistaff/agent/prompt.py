@@ -1,9 +1,9 @@
 """System prompt cho nhân viên AI: tính cách + quy tắc nghiệp vụ + thực đơn.
 
 System prompt KHÔNG chứa gì thay đổi theo giờ: giống hệt từng byte cho mọi phiên, mọi lúc (chỉ đổi khi sửa
-menu). Nhờ vậy tiền tố dài nhất (tools + system) luôn trúng cache: prompt cache của Claude, và KV cache của
-llama.cpp khi chạy LLM local (tránh phải xử lý lại vài nghìn token mỗi lần). Giờ hiện tại và ưu đãi đang áp
-dụng đi vào ghi chú hệ thống ở lượt đầu tiên của từng phiên (`arrival_note`).
+menu). Nhờ vậy llama.cpp tái dùng KV cache của tiền tố dài nhất (tools + system, vài nghìn token) cho mọi lượt
+và mọi khách, không phải tính lại. Giờ hiện tại và ưu đãi đang áp dụng đi vào ghi chú hệ thống ở lượt đầu tiên
+của từng phiên (`arrival_note`).
 """
 
 from __future__ import annotations
