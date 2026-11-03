@@ -9,6 +9,7 @@ giúp ASR ưu tiên nghe đúng tên món của quán (contextual biasing), khô
 from __future__ import annotations
 
 import os
+import threading
 import time
 from dataclasses import dataclass
 from pathlib import Path
@@ -86,16 +87,18 @@ class SherpaASR:
             num_threads=num_threads, sample_rate=16000, feature_dim=80, **kw,
         )
         self.sample_rate = 16000
+        self._lock = threading.Lock()  # nhận dạng tạm (partial) và câu chốt có thể chạy chồng nhau
 
     def transcribe(self, samples: np.ndarray, sample_rate: int = 16000) -> ASRResult:
         from .audio import resample
 
         x = resample(samples, sample_rate, 16000)
         t0 = time.perf_counter()
-        st = self.recognizer.create_stream()
-        st.accept_waveform(16000, x)
-        self.recognizer.decode_stream(st)
-        text = st.result.text.strip()
+        with self._lock:
+            st = self.recognizer.create_stream()
+            st.accept_waveform(16000, x)
+            self.recognizer.decode_stream(st)
+            text = st.result.text.strip()
         return ASRResult(text=text.lower(), duration=len(x) / 16000, latency_ms=(time.perf_counter() - t0) * 1000)
 
 

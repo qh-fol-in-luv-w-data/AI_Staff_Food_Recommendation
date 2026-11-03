@@ -340,6 +340,25 @@ class Speech(_Base):
     vad_min_silence: float = 0.5
 
 
+class Conversation(_Base):
+    """Hội thoại thời gian thực: LLM điều khiển cuộc nói chuyện, công cụ tất định lo giỏ hàng/tiền."""
+
+    engine: Literal["llm", "rules"] = "llm"
+    model: str = "claude-opus-5-5"   # đổi "claude-haiku-5-5" nếu muốn nhanh và rẻ hơn nhiều
+    api_key_env: str = "ANTHROPIC_API_KEY"  # tên biến môi trường chứa API key (không ghi key vào file cấu hình)
+    effort: Literal["low", "medium", "high", "xhigh", "max"] = "low"  # low = phản hồi nhanh nhất cho giọng nói
+    max_tokens: int = Field(4096, ge=256, le=64000)  # thinking cũng tính vào max_tokens
+    request_timeout_seconds: float = Field(20, gt=1, le=120)
+    barge_in: bool = True            # khách nói chen để ngắt lời Mai (cần trình duyệt/micro có khử vọng)
+    barge_in_min_ms: int = Field(300, ge=0, le=3000)  # khách phải nói liên tục bao lâu mới tính là ngắt lời
+    filler: bool = True              # phát "Dạ" ngay khi khách nói xong nếu LLM chưa kịp trả lời
+    filler_delay_ms: int = Field(650, ge=0, le=5000)
+    partial_asr: bool = True         # hiện chữ ngay trong lúc khách đang nói
+    fallback_to_rules: bool = True   # mất mạng / lỗi API -> tự dùng bộ luật offline
+    prewarm_cache: bool = True       # làm ấm prompt cache khi khách bắt đầu (giảm độ trễ câu đầu)
+    max_steps_per_turn: int = Field(6, ge=1, le=12)
+
+
 class LLMFallback(_Base):
     enabled: bool = False
     base_url: str = "http://127.0.0.1:8081/v1"
@@ -360,6 +379,7 @@ class Store(_Base):
     pricing: Pricing = Pricing()
     payment: Payment
     speech: Speech = Speech()
+    conversation: Conversation = Conversation()
     llm_fallback: LLMFallback = LLMFallback()
 
     @property
