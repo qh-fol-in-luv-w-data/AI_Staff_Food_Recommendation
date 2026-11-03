@@ -79,9 +79,11 @@ function displayText(msg: Msg) {
 }
 
 function AiMessage({ m: msg, live }: { m: Msg; live: boolean }) {
+  const realtime = msg.turn !== undefined; // chữ đã chảy ra đúng nhịp AI nói -> không cần hiệu ứng gõ chữ
   const full = displayText(msg);
-  const text = useTypewriter(full, live);
-  const done = text.length >= full.length;
+  const typed = useTypewriter(full, live && !realtime);
+  const text = realtime ? full : typed;
+  const done = !msg.streaming && text.length >= full.length;
   return (
     <m.div className="msg ai" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.3 }}>
       <p className={done ? "" : "typing-text"}>{text}</p>
@@ -105,10 +107,11 @@ export function Assistant() {
   const micRef = useRef<HTMLButtonElement>(null);
   const [draft, setDraft] = useState("");
   useLevelVar(micRef, k.level, k.listening);
+  const lastText = k.msgs[k.msgs.length - 1]?.text.length ?? 0;
   useEffect(() => {
     const el = scroller.current;
     if (el) el.scrollTo({ top: el.scrollHeight, behavior: reduceMotion() ? "auto" : "smooth" });
-  }, [k.msgs.length, k.thinking]);
+  }, [k.msgs.length, k.thinking, k.live, lastText]);
   const lastAi = [...k.msgs].reverse().find((x) => x.role === "ai")?.id;
   const submit = (ev: FormEvent) => {
     ev.preventDefault();
@@ -142,7 +145,14 @@ export function Assistant() {
             </m.div>
           ),
         )}
-        {k.thinking && (
+        <AnimatePresence>
+          {k.live && (
+            <m.div key="live" className="msg me live" initial={{ opacity: 0, x: 16 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0 }}>
+              <p>{k.live}</p>
+            </m.div>
+          )}
+        </AnimatePresence>
+        {k.thinking && !k.live && (
           <div className="msg ai typing" aria-label="Mai đang trả lời">
             <i />
             <i />
@@ -192,7 +202,13 @@ export function Assistant() {
         <input
           value={draft}
           onChange={(e) => setDraft(e.target.value)}
-          placeholder={k.cfg?.speech ? "Nói với Mai, hoặc gõ: cho tôi 2 phở bò tái" : "Gõ: cho tôi 2 phở bò tái, gợi ý món cay…"}
+          placeholder={
+            k.cfg?.speech
+              ? k.cfg.conversation?.barge_in
+                ? "Cứ nói tự nhiên, ngắt lời Mai cũng được…"
+                : "Nói với Mai, hoặc gõ: cho tôi 2 phở bò tái"
+              : "Gõ: cho tôi 2 phở bò tái, gợi ý món cay…"
+          }
           aria-label="Nhập câu gọi món"
         />
         <button type="submit" className="send" aria-label="Gửi">

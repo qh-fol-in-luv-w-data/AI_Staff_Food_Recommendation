@@ -1,7 +1,11 @@
 # Nghiên cứu Core AI: Nhân viên AI gọi món (chi tiết từng phương pháp)
 
-> **Trạng thái: ĐỀ XUẤT ĐỂ DUYỆT.** Tài liệu này chỉ là nghiên cứu. Chưa có thay đổi nào trong code core
-> (ASR, NLU, hội thoại, gợi ý, ưu đãi, TTS) được làm theo các đề xuất dưới đây.
+> **Cập nhật 2026-11-03: đã đổi hướng theo yêu cầu "AI nói chuyện thời gian thực với khách".** LLM nay nằm trên
+> đường xử lý chính (thay cho NLU luật + máy trạng thái), bộ luật cũ chỉ còn làm dự phòng khi mất mạng / lỗi LLM.
+> Kiến trúc, hai lựa chọn "bộ não" (Claude trên cloud / LLM chạy trên máy), độ trễ, chi phí: xem [§16](#16-hội-thoại-thời-gian-thực-bằng-llm-đã-triển-khai).
+> Kết luận "không đưa LLM vào đường chính" ở §0 và §12 là của bản v0.1, giữ lại để đối chiếu.
+>
+> **Trạng thái các phần M1–M12: ĐỀ XUẤT ĐỂ DUYỆT.** Ngoài §16, các đề xuất dưới đây chưa được làm trong code.
 > Mỗi phần kết thúc bằng **Đề xuất** và **Cần quyết định**. Danh sách quyết định tổng hợp ở [§14](#14-lộ-trình-và-các-quyết-định-cần-duyệt).
 >
 > Quy ước độ tin cậy số liệu: **[đo]** = tự đo trong dự án · **[công bố]** = số do tác giả/nhà cung cấp công bố ·
@@ -25,6 +29,7 @@
 13. [M12. Đánh giá, dữ liệu & vòng lặp cải tiến](#13-m12-đánh-giá-dữ-liệu--vòng-lặp-cải-tiến)
 14. [Lộ trình & các quyết định cần duyệt](#14-lộ-trình-và-các-quyết-định-cần-duyệt)
 15. [Tài liệu tham khảo](#15-tài-liệu-tham-khảo)
+16. [Hội thoại thời gian thực bằng LLM (đã triển khai)](#16-hội-thoại-thời-gian-thực-bằng-llm-đã-triển-khai)
 
 ---
 
@@ -638,3 +643,114 @@ Volinsky 2008) · BPR (Rendle et al. 2009) · LambdaMART (Burges 2010) · GRU4Re
   https://doanhnghiephoinhap.vn/quy-dinh-han-muc-khuyen-mai-77883.html
 - Luật BVDLCN 2025: https://kpmg.com/vn/vi/home/phan-tich-chuyen-sau/2025/06/vietnam-new-personal-data-protection-law.html ·
   dữ liệu sinh trắc học: https://thesaigontimes.vn/dung-dua-voi-du-lieu-sinh-trac-hoc-nguoi-dung/
+
+---
+
+## 16. Hội thoại thời gian thực bằng LLM (đã triển khai)
+
+### 16.1. Vì sao đổi
+
+Bản v0.1 là "chọn món bằng giọng nói": mỗi câu được NLU luật đoán ý định rồi máy trạng thái trả lời theo mẫu.
+Chính xác và nhanh, nhưng không *nói chuyện* được: khách hỏi vòng vo, đổi ý giữa chừng, đùa, hỏi "món nào hợp
+trẻ con", nói chen khi Mai đang nói, thì hệ thống cứng nhắc. Yêu cầu mới là một nhân viên AI trò chuyện tự nhiên,
+thời gian thực. Vì vậy LLM được đưa vào giữa pipeline, còn mọi thứ dính tới **tiền** vẫn do code tất định làm.
+
+### 16.2. Kiến trúc
+
+```
+micro ──PCM16──▶ Silero VAD ──▶ ASR Zipformer-vi (trên máy) ──▶ ConversationAgent ──stream chữ──▶ cắt câu ──▶ TTS Piper ──▶ loa
+   │               │  đang nói: ASR tạm 0,6 s/lần → phụ đề          │   ▲ gọi công cụ      (câu đầu cắt ở dấu phẩy,       │
+   │               │                                                ▼   │ kết quả            câu sau tổng hợp khi câu       │
+   │               └─ khách nói chen ≥ 300 ms, có chữ thật,     ToolBox (tất định)          trước đang phát)              │
+   │                  không phải "ừ/dạ", không phải tiếng vọng   giỏ hàng · gợi ý · xem món ·                              │
+   │                  → huỷ lượt, dừng loa, ghi chú cho LLM      phiếu gọi món · tạo đơn + VietQR · huỷ                   │
+   └── chạm màn hình → thao tác tất định + ghi chú "[Hệ thống: khách bấm ...]" cho lượt LLM kế tiếp ◀──────────────────┘
+          mất mạng / lỗi LLM → bộ luật offline v0.1 trả lời thay (nghỉ LLM 30 s rồi thử lại)
+```
+
+| Thành phần | Cách làm | File |
+|---|---|---|
+| Prompt | Tính cách Mai, quy tắc nói (1–2 câu ngắn, câu đầu thật ngắn, không markdown, đọc giá "55 nghìn"), quy tắc nghiệp vụ, toàn bộ thực đơn. **Không chứa gì đổi theo giờ** → giống nhau mọi phiên, trúng cache cả ngày | `agent/prompt.py` |
+| Ghi chú đầu phiên | Giờ hiện tại + ưu đãi đang chạy, gửi trong lượt đầu tiên | `prompt.arrival_note` |
+| Công cụ | `add_to_cart`, `update_cart_item`, `recommend_dishes`, `show_dish`, `review_order`, `place_order`, `cancel_order`. Kiểm tra lại mọi tham số (id phải có trong menu, số lượng 1–20...), trả lỗi để model tự sửa | `agent/tools.py` |
+| Vòng lặp | Lịch sử chỉ nối thêm; lượt assistant có `tool_use` và `tool_result` ghi cùng lúc, nên huỷ lượt ở bất kỳ đâu vẫn hợp lệ; lượt bị ngắt thì lời khách sau nối vào cùng tin nhắn | `agent/agent.py` |
+| Miệng | Cắt câu khi chữ đang chảy, TTS tuần tự, câu đệm "Dạ." nếu sau 650 ms chưa có chữ (và bỏ "Dạ," ở câu thật để khỏi lặp), trình duyệt báo câu nào đã phát để biết khách nghe tới đâu khi ngắt lời | `kiosk/realtime.py` |
+| Tai | Phụ đề tạm khi khách đang nói; lọc tiếng "ừ/dạ" và tiếng vọng (so với câu Mai vừa nói) trước khi coi là ngắt lời | `kiosk/server.py` |
+
+**Vì sao LLM không thể bịa giá:** model chỉ chọn công cụ và tham số. Giá, ưu đãi, tổng tiền, mã QR do code tính rồi
+trả lại cho model đọc. Prompt cấm tự tính tiền; nếu model vẫn đọc sai số, màn hình (phiếu gọi món, QR) vẫn đúng vì lấy
+từ công cụ. Món có thành phần khách kiêng bị lọc ngay trong `recommend_dishes`, không phụ thuộc model.
+
+### 16.3. Hai lựa chọn "bộ não" (`store.yaml → conversation.provider`)
+
+| | **Claude (cloud)** | **LLM chạy trên máy** (llama.cpp / Ollama) |
+|---|---|---|
+| Chất lượng hội thoại tiếng Việt, gọi công cụ | Cao nhất (Opus 5.5); Haiku 5.5 tốt, rất nhanh | Phụ thuộc model; 4B dùng được, 1,5–2B hay gọi sai công cụ hơn **[ước tính]** |
+| Cần Internet | Có (mất mạng → bộ luật offline) | Không |
+| Chi phí | Theo token (§16.5) | 0đ/lượt; tốn phần cứng mạnh hơn |
+| Độ trễ tới chữ đầu | Khoảng 0,6–1,5 s **[ước tính]** | CPU 4 nhân, model 4B: vài giây tới hơn 10 s/lượt có gọi công cụ; GPU/NPU (Jetson Orin, Apple M): khoảng 1,5–4 s **[ước tính]** |
+| Dữ liệu khách | Lời khách (dạng chữ) gửi lên Anthropic → cần thông báo quyền riêng tư tại kiosk | Ở lại trên máy |
+| Cấu hình | Đặt biến môi trường `ANTHROPIC_API_KEY` | `scripts/run_local_llm.sh` (llama-server `--jinja`, ctx 16K, 1 luồng, giữ KV cache) |
+
+`provider: auto` (mặc định): có API key thì dùng Claude, không thì dùng LLM local. Cả hai dùng chung agent, công cụ,
+prompt; `aistaff chat --llm` cho phép nói chuyện thử bằng bàn phím với bộ não thật để chấm chất lượng trước khi lắp micro.
+
+Chi tiết khi dùng Claude (theo tài liệu API hiện hành):
+- Mặc định `claude-opus-5-5`, `effort: low` (ít suy nghĩ nhất → chữ đầu ra sớm nhất; Opus 5.5 không tắt được thinking).
+  Đổi `claude-haiku-5-5` nếu cần nhanh và rẻ hơn nhiều.
+- **Fallback phía server đang bật** (`fallbacks: "default"`, beta `server-side-fallback-2026-07-01`) cho Opus 5.5:
+  nếu bộ lọc an toàn từ chối nhầm, API tự chạy lại trên model dự phòng. Haiku 5.5 không có cơ chế này.
+- Prompt cache: breakpoint ở cuối system prompt + cache tự động phần lịch sử; làm ấm cache bằng request `max_tokens: 0`
+  lúc khởi động và khi khách bắt đầu (bỏ qua nếu cache còn ấm).
+- Lượt từ chối (`stop_reason: refusal`) → câu trả lời an toàn rồi quay lại gọi món; lỗi mạng / hạn mức / sai key → bộ luật offline.
+
+Chi tiết khi chạy local: system prompt cố định nên llama.cpp chỉ phải tính phần đầu (khoảng 5–6 nghìn token **[ước tính]**)
+một lần lúc khởi động (CPU: có thể 1–3 phút **[ước tính]**), các lượt sau chỉ tính phần mới. Model "biết suy nghĩ" (Qwen3 gốc)
+nên tắt thinking qua `extra_body`; phần `<think>` nếu lọt vào nội dung sẽ bị lọc, không bao giờ đọc ra loa.
+
+### 16.4. Ngân sách độ trễ (một lượt "cho anh 2 tô phở bò")
+
+| Bước | Thời gian |
+|---|---|
+| Khách ngừng nói → VAD chốt câu | 500 ms (cấu hình) **[đo]** |
+| ASR cả câu | 40–75 ms **[đo, CPU x86]** |
+| LLM tới chữ đầu (Claude) | 0,6–1,5 s **[ước tính]**; nếu chậm hơn 650 ms thì phát "Dạ." từ cache (0 ms) |
+| TTS câu đầu | 170–300 ms **[đo]** |
+| **Khách nghe phản hồi** | khoảng 1,3–2,4 s sau khi ngừng nói với Claude **[ước tính]**; "Dạ." đệm ở khoảng 1,2 s |
+
+Model thường nói trước một câu ngắn ("Dạ, em lên món ngay.") rồi mới gọi công cụ, nên khách nghe phản hồi trong lúc
+công cụ chạy và model viết câu tiếp theo.
+
+### 16.5. Chi phí Claude (ước tính, cần đối chiếu log `usage` sau khi chạy thật)
+
+Giả định một khách: 6 lượt nói, khoảng 10 request; phần đầu cố định khoảng 5.000 token (đọc từ cache), lịch sử trung bình
+1.500 token (đọc cache), 400 token mới/request (ghi cache), 120 token đầu ra/request (gồm thinking ngắn ở effort low).
+Giá: Opus 5.5 vào $4 / ra $20 / đọc cache $0,20 / ghi cache 5 phút $5 mỗi triệu token; Haiku 5.5 vào $0,10 / ra $0,50,
+đọc cache $0,01, ghi cache $0,125 mỗi triệu token (prompt ≤ 100K token).
+
+| Model | Mỗi request | Mỗi khách (≈10 request) | 100 đơn/ngày |
+|---|---|---|---|
+| claude-opus-5-5 | khoảng $0,0057 | khoảng $0,057 (≈1.500đ) | khoảng $5,7/ngày |
+| claude-haiku-5-5 | khoảng $0,00018 | khoảng $0,0018 (≈50đ) | khoảng $0,18/ngày |
+
+Cộng thêm một lần ghi cache phần đầu (Opus khoảng $0,025, Haiku khoảng $0,0006) mỗi khi cache nguội (quá 5 phút không có khách).
+Kiosk ghi `usage` của từng request vào log (`aistaff.agent`) để tính chi phí thật.
+
+### 16.6. Rủi ro & cách kiểm soát
+
+- **Sai tiền / bịa món:** không thể qua công cụ (giá do code tính, id món giới hạn bằng `enum`). Màn hình luôn hiện số từ công cụ.
+- **Khách "giả" lệnh hệ thống bằng lời nói:** lời khách bị bỏ ký tự `[` `]` nên không giả được dòng `[Hệ thống: ...]`.
+- **Dị ứng:** lọc theo thành phần ngay trong công cụ. Vẫn cần trường `allergens` chuẩn trước khi cho AI trả lời câu hỏi dị ứng (M11).
+- **Mất mạng / LLM chậm:** bộ luật offline trả lời thay; lượt LLM đã kịp đổi mâm thì không chạy lại bằng luật (tránh thêm trùng).
+- **Tiếng vọng làm Mai tự ngắt lời mình:** cần micro/trình duyệt có khử vọng; thêm lọc "ừ/dạ" và so khớp với câu Mai vừa nói.
+  Môi trường ồn hoặc loa to: tắt `barge_in` (micro tạm dừng khi Mai nói, như v0.1).
+
+### 16.7. Trạng thái kiểm thử
+
+- **[đo]** 140 test tự động qua: công cụ, vòng lặp agent (huỷ giữa chừng, từ chối, fallback, giới hạn bước), giao thức Claude
+  (qua HTTP giả lập: đúng tham số cache / effort / fallback, đưa lại khối thinking nguyên vẹn), giao thức LLM local, vòng giọng
+  nói của kiosk (câu đệm, ngắt lời, lọc "ừ" và tiếng vọng), luồng WebSocket tới VietQR, dự phòng bộ luật; giao diện kiểm tra bằng
+  trình duyệt headless (chữ chảy, thẻ gợi ý, AI mở món, mâm cập nhật). Phần LLM trong các test này là **kịch bản cố định**.
+- **Chưa chạy với model thật:** môi trường phát triển không có API key Claude, và chính sách mạng chặn huggingface.co nên chưa tải
+  được model local. Việc tiếp theo: chạy `aistaff chat --llm --debug` (Claude hoặc local) với bộ kịch bản gọi món ở M12, đo tỉ lệ
+  hoàn tất đơn, độ trễ chữ đầu, số lần gọi công cụ sai; chọn model local (Qwen3-4B-Instruct, dòng Qwen3.5 nhỏ, Gemma 4) theo số đo.

@@ -14,15 +14,21 @@ function rms(an: AnalyserNode, buf: Uint8Array<ArrayBuffer>) {
   return Math.min(1, Math.sqrt(s / buf.length) * 3.2);
 }
 
+export interface ClipMeta {
+  turn?: number;
+  seq?: number;
+}
+
 export class Speaker {
   private el = new Audio();
-  private queue: string[] = [];
+  private queue: { url: string; meta: ClipMeta }[] = [];
   private replyId = "";
   private ctx: AudioContext | null = null;
   private analyser: AnalyserNode | null = null;
   private buf = new Uint8Array(new ArrayBuffer(512));
   playing = false;
   onChange: (playing: boolean) => void = () => {};
+  onClip: (meta: ClipMeta) => void = () => {};
 
   constructor() {
     this.el.preload = "auto";
@@ -48,7 +54,7 @@ export class Speaker {
     }
   }
 
-  enqueue(url: string, replyId: string) {
+  enqueue(url: string, replyId: string, meta: ClipMeta = {}) {
     if (replyId !== this.replyId) {
       // câu trả lời mới -> bỏ phần còn lại của câu cũ
       this.replyId = replyId;
@@ -56,7 +62,7 @@ export class Speaker {
       if (this.playing) this.el.pause();
       this.playing = false;
     }
-    this.queue.push(url);
+    this.queue.push({ url, meta });
     if (!this.playing) this.next();
   }
 
@@ -67,14 +73,17 @@ export class Speaker {
   }
 
   private next() {
-    const url = this.queue.shift();
-    if (!url) {
+    const clip = this.queue.shift();
+    if (!clip) {
       this.set(false);
       return;
     }
     this.set(true);
-    this.el.src = url;
-    this.el.play().catch(() => this.next());
+    this.el.src = clip.url;
+    this.el
+      .play()
+      .then(() => this.onClip(clip.meta))
+      .catch(() => this.next());
   }
 
   private set(p: boolean) {

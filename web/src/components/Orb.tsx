@@ -54,7 +54,8 @@ export function Orb({ state, size = 104 }: { state: OrbState; size?: number }) {
 }
 
 export function useOrbState(): OrbState {
-  const { speaking, listening, thinking } = useKiosk();
+  const { speaking, listening, thinking, hearing } = useKiosk();
+  if (hearing) return "listening"; // khách đang nói (kể cả nói chen lúc Mai đang nói)
   if (speaking) return "speaking";
   if (thinking) return "thinking";
   if (listening) return "listening";

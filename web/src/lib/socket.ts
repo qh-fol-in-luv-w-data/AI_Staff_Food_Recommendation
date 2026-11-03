@@ -83,6 +83,11 @@ export class KioskSocket {
     this.raw({ type: "listen", on });
   }
 
+  /** Báo server câu nào đang phát (để biết khách đã nghe tới đâu khi ngắt lời) / đã phát xong. */
+  playback(state: "start" | "idle", turn?: number, seq?: number) {
+    this.raw({ type: "playback", state, turn, seq });
+  }
+
   audio(buf: ArrayBuffer) {
     if (this.ws?.readyState === WebSocket.OPEN) this.ws.send(buf);
   }

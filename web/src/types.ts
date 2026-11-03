@@ -57,6 +57,7 @@ export interface Config {
   entries: Entry[];
   promotions: Promo[];
   speech: boolean;
+  conversation?: { engine: "llm" | "rules"; brain: string; barge_in: boolean; partial_asr: boolean };
 }
 
 export interface CartLine {
@@ -135,10 +136,20 @@ export interface Reply {
 export type ServerMsg =
   | Reply
   | { type: "session"; session_id: string; state: string; speech: boolean }
-  | { type: "tts"; reply_id: string; seq: number; url: string; synth_ms: number }
+  | { type: "tts"; reply_id: string; seq: number; url: string; synth_ms: number; turn?: number; filler?: boolean }
   | { type: "asr"; text: string; latency_ms: number }
+  | { type: "asr_partial"; text: string }
   | { type: "vad"; speaking: boolean }
   | { type: "listening"; on: boolean }
+  // ---- hội thoại thời gian thực (LLM): chữ chảy ra theo từng mẩu, công cụ cập nhật màn hình
+  | { type: "assistant_start"; turn: number; replace?: boolean }
+  | { type: "assistant_delta"; turn: number; text: string }
+  | { type: "assistant_end"; turn: number; text: string; state: string; cart: Cart; tools?: string[]; error?: string }
+  | { type: "cart"; cart: Cart; state?: string }
+  | { type: "recs"; items: Rec[] }
+  | { type: "show_dish"; id: string }
+  | { type: "state"; state: string; qr?: QR | null; order?: Reply["order"] }
+  | { type: "stop_audio"; turn: number | null }
   | { type: "pong" };
 
 export type Action =

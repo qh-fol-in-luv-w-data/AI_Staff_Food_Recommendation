@@ -1,7 +1,7 @@
 """Dòng lệnh: aistaff <lệnh> --store config/stores/<quán>
 
   validate   kiểm tra cấu hình quán (menu, combo, ưu đãi, tài khoản)
-  chat       trò chuyện bằng bàn phím (thử kịch bản không cần micro)
+  chat       trò chuyện bằng bàn phím (thử kịch bản không cần micro); --llm: nói chuyện với AI thật (Claude / LLM local)
   serve      chạy kiosk server (giao diện http://<ip>:8000, quản lý /admin)
   qr         tạo mã VietQR (in ra terminal / lưu PNG)
   hotwords   in danh sách hotword sinh từ menu (cho ASR)
@@ -44,6 +44,93 @@ def cmd_validate(a) -> int:
     return 0
 
 
+def _chat_llm(a, cfg, dm) -> int:
+    """Hội thoại với bộ não LLM thật (cùng agent + công cụ như kiosk), gõ phím thay cho micro."""
+    import asyncio
+
+    from .agent import ConversationAgent, ProviderError
+    from .kiosk.server import make_provider
+
+    conv = cfg.store.conversation
+    conv.engine = "llm"
+    if a.provider:
+        conv.provider = a.provider
+    if a.base_url:
+        conv.local.base_url = a.base_url
+    if a.model:
+        if conv.provider == "anthropic":
+            conv.model = a.model
+        else:
+            conv.local.model = a.model
+    provider = make_provider(cfg)
+    if provider is None:
+        print("Chưa có bộ não LLM: đặt ANTHROPIC_API_KEY (Claude) hoặc chạy scripts/run_local_llm.sh (LLM local).")
+        return 1
+    print(f"(bộ não: {provider.kind}:{provider.model})")
+
+    def new_agent():
+        s = dm.new_session()
+        r = dm.greet(s)
+        ag = ConversationAgent(cfg, dm, s, provider)
+        ag.seed_greeting(r.text)
+        print(f"\n🤖 {r.text}\n")
+        return s, ag
+
+    async def run() -> None:
+        s, ag = new_agent()
+        warm = await ag.prewarm()
+        if a.debug and warm:
+            print(f"   [làm ấm cache: {warm}]")
+        lines = a.say or []
+        while True:
+            try:
+                text = lines.pop(0) if a.say is not None else await asyncio.to_thread(input, "🧑 ")
+            except (EOFError, KeyboardInterrupt, IndexError):
+                return
+            if a.say is not None:
+                print(f"🧑 {text}")
+            if text.strip() in ("/q", "/quit", "exit"):
+                return
+            if text.strip() == "/paid" and s.order_code:
+                print(f"🤖 {dm.payment_received(s).text}\n")
+                s, ag = new_agent()
+                continue
+            qr: list[str] = []
+            print("🤖 ", end="", flush=True)
+
+            async def on_text(d: str) -> None:
+                print(d, end="", flush=True)
+
+            async def on_event(e: dict) -> None:
+                if e.get("type") == "state" and e.get("qr"):
+                    qr.append(e["qr"]["payload"])
+                if a.debug:
+                    brief = {k: v for k, v in e.items() if k not in ("cart", "qr", "order")}
+                    print(f"\n   [màn hình] {json.dumps(brief, ensure_ascii=False)[:160]}", flush=True)
+
+            try:
+                res = await ag.turn(text, on_text, on_event)
+            except ProviderError as e:
+                print(f"\n   [LLM lỗi: {e.kind}] {e}\n")
+                continue
+            if res.refused:
+                print(res.text, end="")
+            print()
+            if a.debug:
+                ttft = f"{res.ttft_ms:.0f} ms" if res.ttft_ms is not None else "-"
+                print(f"   [chữ đầu sau {ttft} | {res.steps} bước | công cụ: {', '.join(res.tools) or '-'} | "
+                      f"token: {res.usage} | state={s.state}]")
+            if qr:
+                from .vietqr import to_terminal
+
+                print(to_terminal(qr[-1]))
+                print("   (gõ /paid để giả lập ngân hàng báo đã nhận tiền)")
+            print()
+
+    asyncio.run(run())
+    return 0
+
+
 def cmd_chat(a) -> int:
     from .config import load_store
     from .dialog import DialogManager
@@ -51,6 +138,8 @@ def cmd_chat(a) -> int:
 
     cfg = load_store(a.store)
     dm = DialogManager(cfg, Storage(a.db), now_fn=_now_fn(cfg, a.at))
+    if a.llm:
+        return _chat_llm(a, cfg, dm)
     s = dm.new_session()
     r = dm.greet(s)
     print(f"\n🤖 {r.text}\n")
@@ -216,6 +305,10 @@ def main(argv: list[str] | None = None) -> int:
     c.add_argument("--at", help="giả lập thời điểm, vd '2026-11-03 15:00' (thử ưu đãi theo giờ)")
     c.add_argument("--say", nargs="*", help="chạy kịch bản không tương tác")
     c.add_argument("--debug", action="store_true")
+    c.add_argument("--llm", action="store_true", help="nói chuyện với AI thật (Claude hoặc LLM local) thay cho bộ luật")
+    c.add_argument("--provider", choices=["auto", "local", "anthropic"], help="ghi đè conversation.provider")
+    c.add_argument("--base-url", help="địa chỉ LLM local, vd http://127.0.0.1:11434/v1 (Ollama)")
+    c.add_argument("--model", help="tên model (Claude hoặc model trên server local)")
     sv = sub.add_parser("serve")
     sv.add_argument("--host", default="0.0.0.0")
     sv.add_argument("--port", type=int, default=8000)

@@ -10,6 +10,8 @@ export interface Msg {
   recs?: Rec[];
   options?: Reply["options"];
   intent?: string;
+  turn?: number; // lượt AI nói theo thời gian thực (chữ chảy ra dần)
+  streaming?: boolean;
 }
 
 export interface Detail {
@@ -38,6 +40,7 @@ interface State {
   thinking: boolean;
   intent: string;
   detail: Detail | null;
+  live: string; // phụ đề tạm: khách đang nói tới đâu
 }
 
 type Ev =
@@ -49,7 +52,14 @@ type Ev =
   | { t: "thinking"; on: boolean }
   | { t: "start" }
   | { t: "reset" }
-  | { t: "detail"; d: Detail | null };
+  | { t: "detail"; d: Detail | null }
+  | { t: "live"; text: string }
+  | { t: "ai_start"; turn: number; replace?: boolean }
+  | { t: "ai_delta"; turn: number; text: string }
+  | { t: "ai_end"; turn: number; text: string; state: string; cart: Cart }
+  | { t: "cart"; cart: Cart; state?: string }
+  | { t: "recs"; items: Rec[] }
+  | { t: "state"; state: string; qr?: QR | null; order?: Reply["order"] };
 
 const init: State = {
   cfg: null,
@@ -66,6 +76,7 @@ const init: State = {
   thinking: false,
   intent: "",
   detail: null,
+  live: "",
 };
 
 let seq = 0;
@@ -80,7 +91,47 @@ function reducer(s: State, e: Ev): State {
     case "session":
       return { ...s, server: e.state, started: s.started || (e.state !== "idle" && e.state !== "done") };
     case "user":
-      return { ...s, msgs: [...s.msgs, { id: nid(), role: "user" as const, text: e.text }].slice(-30), thinking: true };
+      return { ...s, msgs: [...s.msgs, { id: nid(), role: "user" as const, text: e.text }].slice(-30), thinking: true, live: "" };
+    case "live":
+      return { ...s, live: e.text };
+    case "ai_start": {
+      let msgs = s.msgs;
+      const last = msgs[msgs.length - 1];
+      if (e.replace && last?.role === "ai" && last.turn !== undefined) msgs = msgs.slice(0, -1);
+      msgs = msgs.map((x) => (x.streaming ? { ...x, streaming: false } : x)); // lượt cũ bị ngắt
+      return { ...s, msgs: [...msgs, { id: `turn-${e.turn}`, role: "ai" as const, text: "", turn: e.turn, streaming: true }].slice(-30), started: true };
+    }
+    case "ai_delta":
+      return {
+        ...s,
+        thinking: false,
+        msgs: s.msgs.map((x) => (x.turn === e.turn && x.role === "ai" ? { ...x, text: x.text + e.text } : x)),
+      };
+    case "ai_end": {
+      const msgs = s.msgs
+        .map((x) => (x.turn === e.turn && x.role === "ai" ? { ...x, text: e.text || x.text, streaming: false } : x))
+        .filter((x) => !(x.turn === e.turn && x.role === "ai" && !x.text && !x.recs?.length));
+      return { ...s, msgs, thinking: false, server: e.state, cart: e.cart ?? s.cart, suggestions: [], options: [] };
+    }
+    case "cart":
+      return { ...s, cart: e.cart, server: e.state ?? s.server };
+    case "recs": {
+      // thẻ món gợi ý gắn vào câu Mai đang nói
+      let idx = -1;
+      s.msgs.forEach((x, i) => {
+        if (x.role === "ai" && x.streaming) idx = i;
+      });
+      const msgs = idx >= 0 ? s.msgs.map((x, i) => (i === idx ? { ...x, recs: e.items } : x)) : s.msgs;
+      return { ...s, msgs, recs: e.items.length ? e.items : s.recs };
+    }
+    case "state":
+      return {
+        ...s,
+        server: e.state,
+        started: true,
+        qr: e.qr ?? (e.state === "awaiting_payment" ? s.qr : null),
+        order: e.order ?? (e.state === "ordering" || e.state === "confirm_order" ? null : s.order),
+      };
     case "thinking":
       return { ...s, thinking: e.on };
     case "start":
@@ -122,6 +173,8 @@ interface Ctx extends State {
   openDetail: (d: Detail | null) => void;
   speaking: boolean;
   listening: boolean;
+  hearing: boolean;
+  realtime: boolean;
   micError: string | null;
   toggleMic: () => void;
   level: () => number;
@@ -142,6 +195,8 @@ export function KioskProvider({ children }: { children: ReactNode }) {
   const [speaking, setSpeaking] = useState(false);
   const [listening, setListening] = useState(false);
   const [micError, setMicError] = useState<string | null>(null);
+  const [hearing, setHearing] = useState(false); // VAD: khách đang nói
+  const bargeIn = useRef(false);
   const [flyers, setFlyers] = useState<Flyer[]>([]);
   const [trayBump, setTrayBump] = useState(0);
   const orbRef = useRef<HTMLDivElement | null>(null);
@@ -151,6 +206,7 @@ export function KioskProvider({ children }: { children: ReactNode }) {
   const flyKey = useRef(0);
 
   const entries = useMemo(() => new Map((s.cfg?.entries ?? []).map((e) => [e.id, e])), [s.cfg]);
+  bargeIn.current = Boolean(s.cfg?.conversation?.barge_in);
   const entry = useCallback((id: string) => entries.get(id), [entries]);
 
   const fly = useCallback((entryId: string, from: DOMRect) => {
@@ -164,27 +220,77 @@ export function KioskProvider({ children }: { children: ReactNode }) {
       .catch(() => undefined);
     speaker.onChange = (p) => {
       setSpeaking(p);
-      mic.paused = p; // bán song công: không thu khi Mai đang nói
+      // có khử vọng + cho phép nói chen: micro luôn mở; không thì bán song công (không thu khi Mai đang nói)
+      mic.paused = p && !bargeIn.current;
+      if (!p) socket.playback("idle");
+    };
+    speaker.onClip = (meta) => socket.playback("start", meta.turn, meta.seq);
+    // món mới vào mâm do giọng nói -> bay từ quả cầu của Mai sang mâm
+    const onCart = (cart: Cart | null | undefined) => {
+      if (!cart) return;
+      const now: Record<string, number> = {};
+      cart.lines.forEach((l) => (now[l.entry_id] = (now[l.entry_id] ?? 0) + l.qty));
+      const grew = Object.keys(now).filter((k) => now[k] > (prevQty.current[k] ?? 0));
+      if (grew.length && Date.now() - localAdd.current > 1500 && orbRef.current) {
+        const rect = orbRef.current.getBoundingClientRect();
+        grew.slice(0, 3).forEach((id, i) => setTimeout(() => fly(id, rect), i * 160));
+      }
+      if (grew.length) setTimeout(() => setTrayBump((b) => b + 1), 700);
+      prevQty.current = now;
     };
     const offS = socket.onStatus((ok) => dispatch({ t: "conn", ok }));
     const off = socket.on((m) => {
-      if (m.type === "session") dispatch({ t: "session", state: m.state });
-      else if (m.type === "reply") {
-        // món mới vào mâm do giọng nói -> bay từ quả cầu của Mai sang mâm
-        const now: Record<string, number> = {};
-        (m.cart?.lines ?? []).forEach((l) => (now[l.entry_id] = (now[l.entry_id] ?? 0) + l.qty));
-        const grew = Object.keys(now).filter((k) => now[k] > (prevQty.current[k] ?? 0));
-        if (grew.length && Date.now() - localAdd.current > 1500 && orbRef.current) {
-          const rect = orbRef.current.getBoundingClientRect();
-          grew.slice(0, 3).forEach((id, i) => setTimeout(() => fly(id, rect), i * 160));
-        }
-        if (grew.length) setTimeout(() => setTrayBump((b) => b + 1), 700);
-        prevQty.current = now;
-        dispatch({ t: "reply", r: m });
-      } else if (m.type === "tts") speaker.enqueue(m.url, m.reply_id);
-      else if (m.type === "asr") {
-        if (m.text) dispatch({ t: "user", text: m.text });
-      } else if (m.type === "listening") setListening(m.on);
+      switch (m.type) {
+        case "session":
+          dispatch({ t: "session", state: m.state });
+          break;
+        case "reply":
+          onCart(m.cart);
+          dispatch({ t: "reply", r: m });
+          break;
+        case "tts":
+          speaker.enqueue(m.url, m.reply_id, { turn: m.turn, seq: m.seq });
+          break;
+        case "stop_audio":
+          speaker.stop();
+          break;
+        case "asr":
+          if (m.text) dispatch({ t: "user", text: m.text });
+          else dispatch({ t: "live", text: "" });
+          break;
+        case "asr_partial":
+          dispatch({ t: "live", text: m.text });
+          break;
+        case "vad":
+          setHearing(m.speaking);
+          break;
+        case "listening":
+          setListening(m.on);
+          break;
+        case "assistant_start":
+          dispatch({ t: "ai_start", turn: m.turn, replace: m.replace });
+          break;
+        case "assistant_delta":
+          dispatch({ t: "ai_delta", turn: m.turn, text: m.text });
+          break;
+        case "assistant_end":
+          onCart(m.cart);
+          dispatch({ t: "ai_end", turn: m.turn, text: m.text, state: m.state, cart: m.cart });
+          break;
+        case "cart":
+          onCart(m.cart);
+          dispatch({ t: "cart", cart: m.cart, state: m.state });
+          break;
+        case "recs":
+          dispatch({ t: "recs", items: m.items });
+          break;
+        case "show_dish":
+          dispatch({ t: "detail", d: { id: m.id, source: `grid-${m.id}` } });
+          break;
+        case "state":
+          dispatch({ t: "state", state: m.state, qr: m.qr, order: m.order });
+          break;
+      }
     });
     socket.connect();
     return () => {
@@ -252,6 +358,8 @@ export function KioskProvider({ children }: { children: ReactNode }) {
     openDetail: (d) => dispatch({ t: "detail", d }),
     speaking,
     listening,
+    hearing,
+    realtime: s.cfg?.conversation?.engine === "llm",
     micError,
     toggleMic,
     level,

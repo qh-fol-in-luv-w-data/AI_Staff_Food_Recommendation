@@ -56,7 +56,7 @@ function Tile({ e, index, rec }: { e: Entry; index: number; rec: boolean }) {
 }
 
 export function Menu() {
-  const { cfg, recs } = useKiosk();
+  const { cfg, recs, detail } = useKiosk();
   const cats = useMemo(() => {
     if (!cfg) return [];
     return cfg.categories.filter((c) =>
@@ -73,6 +73,13 @@ export function Menu() {
     const first = cfg.entries.find((e) => e.id === recs[0].entry_id);
     if (first) setCat(first.kind === "combo" ? "combo" : first.category);
   }, [recs, cfg]);
+  // Mai mở một món theo lời khách -> thực đơn chuyển tới nhóm của món đó (đóng lại thì bát bay về đúng chỗ)
+  const shown = detail?.source.startsWith("grid-") ? detail.id : null;
+  useEffect(() => {
+    if (!cfg || !shown) return;
+    const e = cfg.entries.find((x) => x.id === shown);
+    if (e) setCat(e.kind === "combo" ? "combo" : e.category);
+  }, [shown, cfg]);
 
   if (!cfg) return <section className="menu" />;
   const list = cfg.entries.filter((e) => (current === "combo" ? e.kind === "combo" : e.kind === "item" && e.category === current));
