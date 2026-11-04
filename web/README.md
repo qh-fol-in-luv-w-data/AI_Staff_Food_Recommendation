@@ -15,9 +15,8 @@ Xem minh hoạ toàn bộ món: `http://localhost:8000/?gallery`. Thiết bị y
 
 ## Thiết kế: "Mâm sơn mài"
 
-Làm theo skill [frontend-design](https://github.com/anthropics/skills/tree/main/skills/frontend-design) của Anthropic:
-lập kế hoạch token → rà để tránh kiểu thiết kế "mặc định" → dựng → chụp màn hình tự phê bình
-(Playwright, theo skill `webapp-testing`).
+Quy trình: lập kế hoạch token → rà để tránh kiểu thiết kế "mặc định" → dựng → chụp màn hình tự phê bình
+(Playwright).
 
 - **Ý tưởng:** thực đơn là mâm sơn mài nhìn từ trên xuống, mỗi món là bát/đĩa sứ viền lam Bát Tràng.
   Điểm nhấn duy nhất: bát nóng bốc khói trên nền sơn then, điểm vàng lá.

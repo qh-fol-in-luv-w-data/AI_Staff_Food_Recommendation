@@ -85,7 +85,7 @@ khoảng 3,5–4,5 GB RAM với ngữ cảnh 16K **[ước tính]**.
 | LLM | Qwen3-1,7B, dòng Qwen3.5 nhỏ (Apache-2.0) | Dự phòng cho máy yếu | Nhanh hơn khoảng 2 lần, gọi công cụ kém chính xác hơn **[ước tính]**; cần chấm bằng kịch bản M12 |
 | LLM | Vistral-7B, SeaLLMs, Arcee-VyLinh-3B | Chưa dùng | Tiếng Việt tốt nhưng 3–7B chậm trên CPU; giấy phép **cần kiểm chứng** (VyLinh dựa trên Qwen2.5-3B: giấy phép gốc phi thương mại) |
 | LLM | Llama 3.x, Gemma | Không dùng mặc định | Điều khoản riêng, không phải giấy phép OSI (Gemma 4: **cần kiểm chứng**) |
-| LLM | API LLM đám mây (OpenAI, Claude, Gemini…) | Loại | Không phải mã nguồn mở, gửi lời khách ra ngoài, cần Internet |
+| LLM | API LLM đám mây (OpenAI, Gemini…) | Loại | Không phải mã nguồn mở, gửi lời khách ra ngoài, cần Internet |
 | TTS | VieNeu-TTS | Đánh giá sau | Chất lượng cao, model khoảng 1 GB; giấy phép **cần kiểm chứng** |
 | TTS | Kokoro-82M (Apache-2.0), Matcha-TTS | Chưa dùng | Chưa có giọng tiếng Việt chính thức |
 | TTS | XTTS-v2 / viXTTS (CPML), MMS-TTS (CC BY-NC), checkpoint F5-TTS (thường phi thương mại) | Loại | Giấy phép không cho dùng thương mại |
